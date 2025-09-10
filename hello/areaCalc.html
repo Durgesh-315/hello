@@ -6,388 +6,210 @@
   <title>Smart Land Area Calculator</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
   <style>
-    * {
-      box-sizing: border-box;
-    }
     body {
       margin: 0;
       font-family: Arial, sans-serif;
-      background: #f5f5f5;
+      background: #f4f4f4;
     }
     #header {
-      background: linear-gradient(135deg, #2c3e50, #34495e);
+      background: #2c3e50;
       color: white;
       padding: 15px;
       text-align: center;
     }
     #header h1 {
       margin: 0;
-      font-size: 24px;
     }
-    #header p {
-      margin: 5px 0 0 0;
-      opacity: 0.9;
+    #instructions {
+      background: #eafaf1;
+      padding: 10px 15px;
       font-size: 14px;
+      border-left: 5px solid #27ae60;
+    }
+    #controls {
+      padding: 10px;
+      background: white;
+      text-align: center;
+    }
+    #controls button {
+      padding: 10px 20px;
+      margin: 5px;
+      font-size: 16px;
+      border: none;
+      border-radius: 5px;
+      cursor: pointer;
+      font-weight: bold;
+    }
+    #controls button:disabled {
+      background-color: #ccc;
+      cursor: not-allowed;
     }
     #map {
       height: 60vh;
       width: 100%;
     }
-    #controls {
-      padding: 15px;
-      background: white;
-      text-align: center;
-      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-    }
-    #controls button {
-      padding: 12px 20px;
-      margin: 5px;
-      font-size: 16px;
-      border: none;
-      border-radius: 8px;
-      cursor: pointer;
-      font-weight: bold;
-      transition: all 0.3s ease;
-    }
-    #startBtn {
-      background: linear-gradient(135deg, #27ae60, #2ecc71);
-      color: white;
-    }
-    #stopBtn {
-      background: linear-gradient(135deg, #f39c12, #e67e22);
-      color: white;
-    }
-    #closeBtn {
-      background: linear-gradient(135deg, #3498db, #2980b9);
-      color: white;
-    }
-    #clearBtn {
-      background: linear-gradient(135deg, #e74c3c, #c0392b);
-      color: white;
-    }
-    #controls button:disabled {
-      background: #bdc3c7;
-      cursor: not-allowed;
-      opacity: 0.6;
-    }
-    #controls button:not(:disabled):hover {
-      transform: translateY(-2px);
-      box-shadow: 0 4px 8px rgba(0,0,0,0.2);
-    }
     #info {
-      padding: 20px;
+      padding: 15px;
       background: white;
       margin: 10px;
-      border-radius: 10px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-    }
-    .metric-row {
-      display: flex;
-      justify-content: space-between;
-      margin: 10px 0;
-      padding: 10px;
-      background: #f8f9fa;
       border-radius: 8px;
-      border-left: 4px solid #3498db;
+      box-shadow: 0 0 5px rgba(0,0,0,0.1);
+      font-size: 16px;
     }
-    .metric-label {
-      font-weight: bold;
+    .metric {
+      margin: 8px 0;
+    }
+    .metric strong {
       color: #2c3e50;
-    }
-    .metric-value {
-      font-size: 18px;
-      color: #27ae60;
-      font-weight: bold;
-    }
-    #status {
-      margin-top: 15px;
-      padding: 10px;
-      background: #ecf0f1;
-      border-radius: 8px;
-      font-size: 14px;
-      color: #2c3e50;
-    }
-    .status-good { background: #d5f4e6; color: #27ae60; }
-    .status-warning { background: #ffeaa7; color: #d63031; }
-    .status-error { background: #ffcdd2; color: #c62828; }
-    #instructions {
-      margin: 10px;
-      padding: 15px;
-      background: #e8f5e8;
-      border-radius: 8px;
-      border-left: 4px solid #27ae60;
     }
   </style>
 </head>
 <body>
 
   <div id="header">
-    <h1>🌍 Smart Land Area Calculator</h1>
-    <p>Walk around your property to measure the area</p>
+    <h1>🌱 Smart Land Area Calculator</h1>
   </div>
 
   <div id="instructions">
-    <strong>📋 How to use:</strong><br>
-    1️⃣ Click "Start Walking" and <strong>ALLOW location access</strong><br>
-    2️⃣ Walk around your property boundary<br>
-    3️⃣ Click "Stop & Calculate" when you complete the loop<br>
-    <small>💡 Make sure GPS/Location is enabled on your device!</small>
+    <p>1️⃣ Tap "Start" to begin walking around your land.<br>
+    2️⃣ Tap "Stop" to end tracking.<br>
+    3️⃣ Tap "Close Shape" to finalize area.<br>
+    4️⃣ Area and perimeter will be shown below.</p>
   </div>
 
   <div id="controls">
-    <button id="startBtn">🚶‍♂️ Start Walking</button>
-    <button id="stopBtn" disabled>⏹️ Stop & Calculate</button>
-    <button id="closeBtn" disabled>🔗 Close Shape</button>
-    <button id="clearBtn">🗑️ Clear & Restart</button>
+    <button id="startBtn">▶️ Start</button>
+    <button id="stopBtn" disabled>⏹ Stop</button>
+    <button id="closeBtn" disabled>📐 Close Shape</button>
+    <button id="clearBtn">🗑 Clear</button>
   </div>
 
   <div id="map"></div>
 
   <div id="info">
-    <div class="metric-row">
-      <span class="metric-label">📏 Area (Square Meters)</span>
-      <span class="metric-value" id="areaSqm">0</span>
-    </div>
-    <div class="metric-row">
-      <span class="metric-label">🏡 Area (Acres)</span>
-      <span class="metric-value" id="areaAcres">0</span>
-    </div>
-    <div class="metric-row">
-      <span class="metric-label">🌾 Area (Hectares)</span>
-      <span class="metric-value" id="areaHectares">0</span>
-    </div>
-    <div class="metric-row">
-      <span class="metric-label">🔄 Perimeter</span>
-      <span class="metric-value"><span id="perimeter">0</span> m</span>
-    </div>
-    <div id="status">🎯 Click "Start Walking" to begin. Make sure to allow location access!</div>
+    <div class="metric"><strong>📏 Area (m²):</strong> <span id="area">0</span></div>
+    <div class="metric"><strong>🏡 Area (acres):</strong> <span id="acres">0</span></div>
+    <div class="metric"><strong>🌾 Area (hectares):</strong> <span id="hectares">0</span></div>
+    <div class="metric"><strong>🔄 Perimeter:</strong> <span id="perimeter">0</span> m (<span id="perimeterKm">0</span> km)</div>
   </div>
 
+  <!-- Leaflet + Turf -->
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
   <script src="https://unpkg.com/@turf/turf/turf.min.js"></script>
 
   <script>
-    // Initialize map
-    const map = L.map('map').setView([28.6139, 77.2090], 10); // Delhi coordinates as default
+    const map = L.map('map').setView([20, 77], 5);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19,
-      attribution: '© OpenStreetMap contributors'
+      maxZoom: 18,
+      attribution: '© OpenStreetMap'
     }).addTo(map);
 
-    // Variables
     let pathPoints = [];
-    let pathLine = null;
-    let polygonLayer = null;
     let watchId = null;
-    let isTracking = false;
-    let currentMarker = null;
-    let pointMarkers = [];
-    let totalDistance = 0;
+    let polygonLayer = null;
+    let polylineLayer = null;
+    let currentLocation = null;
+    let markers = [];
 
-    // Elements
     const startBtn = document.getElementById('startBtn');
     const stopBtn = document.getElementById('stopBtn');
     const closeBtn = document.getElementById('closeBtn');
     const clearBtn = document.getElementById('clearBtn');
-    const areaSqmDisplay = document.getElementById('areaSqm');
-    const areaAcresDisplay = document.getElementById('areaAcres');
-    const areaHectaresDisplay = document.getElementById('areaHectares');
-    const perimeterDisplay = document.getElementById('perimeter');
-    const statusDisplay = document.getElementById('status');
+    const areaSpan = document.getElementById('area');
+    const acresSpan = document.getElementById('acres');
+    const hectaresSpan = document.getElementById('hectares');
+    const perimeterSpan = document.getElementById('perimeter');
+    const perimeterKmSpan = document.getElementById('perimeterKm');
 
-    function updateStatus(message, type = '') {
-      statusDisplay.innerHTML = message;
-      statusDisplay.className = type;
+    function updateUI(area, perimeter) {
+      areaSpan.innerText = area.toFixed(2);
+      acresSpan.innerText = (area * 0.000247105).toFixed(4);
+      hectaresSpan.innerText = (area * 0.0001).toFixed(4);
+      perimeterSpan.innerText = perimeter.toFixed(2);
+      perimeterKmSpan.innerText = (perimeter / 1000).toFixed(3);
     }
 
-    function calculateDistance(lat1, lng1, lat2, lng2) {
-      const R = 6371e3; // Earth radius in meters
-      const φ1 = lat1 * Math.PI/180;
-      const φ2 = lat2 * Math.PI/180;
-      const Δφ = (lat2-lat1) * Math.PI/180;
-      const Δλ = (lng2-lng1) * Math.PI/180;
-
-      const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
-                Math.cos(φ1) * Math.cos(φ2) *
-                Math.sin(Δλ/2) * Math.sin(Δλ/2);
-      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-
-      return R * c;
-    }
-
-    function addPointToPath(latlng) {
-      pathPoints.push(latlng);
-      
-      // Add point marker
-      const isFirst = pathPoints.length === 1;
-      const marker = L.circleMarker(latlng, {
-        radius: isFirst ? 8 : 6,
-        fillColor: isFirst ? '#e74c3c' : '#27ae60',
-        color: 'white',
-        weight: 2,
-        fillOpacity: 1
-      }).addTo(map);
-
-      // Add label
-      if (isFirst) {
-        marker.bindPopup('START').openPopup();
-      } else {
-        marker.bindTooltip(pathPoints.length.toString());
+    function drawPolygon() {
+      if (polygonLayer) {
+        map.removeLayer(polygonLayer);
+      }
+      if (polylineLayer) {
+        map.removeLayer(polylineLayer);
       }
 
-      pointMarkers.push(marker);
-
-      // Update path line
-      updatePathLine();
-      
-      // Calculate distance if not first point
-      if (pathPoints.length > 1) {
-        const prevPoint = pathPoints[pathPoints.length - 2];
-        const distance = calculateDistance(
-          prevPoint.lat, prevPoint.lng, 
-          latlng.lat, latlng.lng
-        );
-        totalDistance += distance;
-      }
-
-      updateStatus(`📍 Points: ${pathPoints.length} | 📏 Distance: ${totalDistance.toFixed(0)}m`, 'status-good');
-
-      // Enable close button when we have 3+ points
       if (pathPoints.length >= 3) {
-        closeBtn.disabled = false;
-      }
-    }
-
-    function updatePathLine() {
-      if (pathLine) {
-        map.removeLayer(pathLine);
-      }
-
-      if (pathPoints.length >= 2) {
-        pathLine = L.polyline(pathPoints, {
-          color: '#3498db',
-          weight: 3,
-          opacity: 0.8
+        polygonLayer = L.polygon(pathPoints, {
+          color: '#27ae60',
+          fillColor: '#d5f4e6',
+          fillOpacity: 0.5
         }).addTo(map);
+
+        const coords = pathPoints.map(p => [p.lng, p.lat]);
+        coords.push([pathPoints[0].lng, pathPoints[0].lat]);
+
+        const turfPolygon = turf.polygon([coords]);
+        const area = turf.area(turfPolygon);
+        const perimeter = turf.length(turf.lineString(coords), { units: 'meters' });
+
+        updateUI(area, perimeter);
+        map.fitBounds(polygonLayer.getBounds());
       }
     }
 
-    function updateCurrentLocation(latlng, accuracy) {
-      if (currentMarker) {
-        map.removeLayer(currentMarker);
+    function drawPath() {
+      if (polylineLayer) {
+        map.removeLayer(polylineLayer);
       }
-
-      currentMarker = L.circle(latlng, {
-        radius: accuracy || 10,
-        fillColor: '#2196F3',
-        color: '#1976D2',
-        weight: 2,
-        opacity: 0.6,
-        fillOpacity: 0.2
+      polylineLayer = L.polyline(pathPoints, {
+        color: '#3498db',
+        weight: 3,
+        dashArray: '5, 10'
       }).addTo(map);
-
-      // Add center dot
-      L.circleMarker(latlng, {
-        radius: 4,
-        fillColor: '#1976D2',
-        color: 'white',
-        weight: 2,
-        fillOpacity: 1
-      }).addTo(currentMarker);
     }
 
     function startTracking() {
-      // Check if geolocation is supported
       if (!navigator.geolocation) {
-        alert('❌ Geolocation is not supported by your browser');
+        alert('Geolocation not supported');
         return;
       }
 
-      updateStatus('🔄 Requesting location permission...', 'status-warning');
+      pathPoints = [];
+      markers.forEach(m => map.removeLayer(m));
+      markers = [];
+      if (polygonLayer) map.removeLayer(polygonLayer);
 
-      // First get current position to ask for permission
-      navigator.geolocation.getCurrentPosition(
-        function(position) {
-          // Permission granted, now start continuous tracking
-          const { latitude, longitude, accuracy } = position.coords;
-          const latlng = L.latLng(latitude, longitude);
-          
-          // Center map on user location
-          map.setView(latlng, 18);
-          updateCurrentLocation(latlng, accuracy);
-          
-          updateStatus('✅ Location found! Walk around your property to mark boundaries.', 'status-good');
-          
-          // Start continuous tracking
-          isTracking = true;
-          startBtn.disabled = true;
-          stopBtn.disabled = false;
+      watchId = navigator.geolocation.watchPosition(pos => {
+        const { latitude, longitude, accuracy } = pos.coords;
+        if (accuracy > 20) return; // skip inaccurate points
+        const latlng = L.latLng(latitude, longitude);
+        pathPoints.push(latlng);
 
-          watchId = navigator.geolocation.watchPosition(
-            function(pos) {
-              const { latitude, longitude, accuracy } = pos.coords;
-              const currentPos = L.latLng(latitude, longitude);
-              
-              updateCurrentLocation(currentPos, accuracy);
-              
-              // Auto-add points based on movement (every 5 meters)
-              if (pathPoints.length === 0 || 
-                  calculateDistance(
-                    pathPoints[pathPoints.length-1].lat, 
-                    pathPoints[pathPoints.length-1].lng,
-                    latitude, longitude
-                  ) > 5) {
-                addPointToPath(currentPos);
-              }
-            },
-            function(error) {
-              let errorMsg = 'GPS Error: ';
-              switch(error.code) {
-                case error.PERMISSION_DENIED:
-                  errorMsg += 'Location access denied by user.';
-                  break;
-                case error.POSITION_UNAVAILABLE:
-                  errorMsg += 'Location information is unavailable.';
-                  break;
-                case error.TIMEOUT:
-                  errorMsg += 'Location request timed out.';
-                  break;
-                default:
-                  errorMsg += 'An unknown error occurred.';
-              }
-              updateStatus('❌ ' + errorMsg, 'status-error');
-              stopTracking();
-            },
-            {
-              enableHighAccuracy: true,
-              timeout: 10000,
-              maximumAge: 2000
-            }
-          );
-        },
-        function(error) {
-          let errorMsg = '';
-          switch(error.code) {
-            case error.PERMISSION_DENIED:
-              errorMsg = 'Please allow location access and try again.';
-              break;
-            case error.POSITION_UNAVAILABLE:
-              errorMsg = 'Location service unavailable.';
-              break;
-            case error.TIMEOUT:
-              errorMsg = 'Location request timed out. Try again.';
-              break;
-            default:
-              errorMsg = 'An unknown error occurred.';
-          }
-          updateStatus('❌ ' + errorMsg + ' Make sure GPS is enabled.', 'status-error');
-        },
-        {
-          enableHighAccuracy: true,
-          timeout: 15000,
-          maximumAge: 0
+        const marker = L.circleMarker(latlng, {
+          radius: 5,
+          fillColor: '#27ae60',
+          color: '#2c3e50',
+          weight: 1,
+          fillOpacity: 1
+        }).addTo(map);
+        markers.push(marker);
+
+        drawPath();
+        map.setView(latlng, 18);
+
+        if (pathPoints.length >= 3) {
+          closeBtn.disabled = false;
         }
-      );
+
+      }, err => {
+        alert('Error getting location: ' + err.message);
+      }, {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 1000
+      });
+
+      startBtn.disabled = true;
+      stopBtn.disabled = false;
     }
 
     function stopTracking() {
@@ -395,119 +217,33 @@
         navigator.geolocation.clearWatch(watchId);
         watchId = null;
       }
-      
-      isTracking = false;
       startBtn.disabled = false;
       stopBtn.disabled = true;
-      closeBtn.disabled = pathPoints.length < 3;
-
-      if (currentMarker) {
-        map.removeLayer(currentMarker);
-        currentMarker = null;
-      }
     }
 
-    function calculateAndDisplay() {
-      if (pathPoints.length < 3) {
-        alert(`Need at least 3 points to calculate area. You have ${pathPoints.length} points.`);
-        return;
-      }
-
-      // Remove path line
-      if (pathLine) {
-        map.removeLayer(pathLine);
-      }
-
-      // Create and display polygon
-      if (polygonLayer) {
-        map.removeLayer(polygonLayer);
-      }
-
-      polygonLayer = L.polygon(pathPoints, {
-        color: '#27ae60',
-        weight: 3,
-        fillColor: '#d5f4e6',
-        fillOpacity: 0.4
-      }).addTo(map);
-
-      // Calculate area and perimeter
-      try {
-        const coords = pathPoints.map(p => [p.lng, p.lat]);
-        coords.push(coords[0]); // Close the polygon
-
-        const polygon = turf.polygon([coords]);
-        const area = turf.area(polygon);
-        const perimeter = turf.length(turf.lineString(coords), { units: 'meters' });
-
-        // Update displays
-        areaSqmDisplay.textContent = area.toFixed(2);
-        areaAcresDisplay.textContent = (area * 0.000247105).toFixed(4);
-        areaHectaresDisplay.textContent = (area * 0.0001).toFixed(4);
-        perimeterDisplay.textContent = perimeter.toFixed(2);
-
-        // Fit map to polygon
-        map.fitBounds(polygonLayer.getBounds());
-
-        updateStatus(`✅ Area calculated: ${area.toFixed(2)} m² | Perimeter: ${perimeter.toFixed(2)} m`, 'status-good');
-
-        // Show results
-        setTimeout(() => {
-          alert(`✅ Measurement Complete!\n\n📏 Area: ${area.toFixed(2)} m²\n🏡 Area: ${(area * 0.000247105).toFixed(4)} acres\n🔄 Perimeter: ${perimeter.toFixed(2)} m`);
-        }, 1000);
-
-      } catch (error) {
-        updateStatus('❌ Error calculating area', 'status-error');
-        alert('Error calculating area. Please try again.');
-      }
+    function closeShape() {
+      stopTracking();
+      drawPolygon();
+      closeBtn.disabled = true;
     }
 
     function clearAll() {
       stopTracking();
-      
       pathPoints = [];
-      totalDistance = 0;
-      
-      // Remove all layers
-      [pathLine, polygonLayer, currentMarker].forEach(layer => {
-        if (layer) map.removeLayer(layer);
-      });
-      pathLine = polygonLayer = currentMarker = null;
-
-      // Remove point markers
-      pointMarkers.forEach(marker => map.removeLayer(marker));
-      pointMarkers = [];
-
-      // Reset displays
-      areaSqmDisplay.textContent = '0';
-      areaAcresDisplay.textContent = '0';
-      areaHectaresDisplay.textContent = '0';
-      perimeterDisplay.textContent = '0';
-
-      // Reset buttons
+      if (polygonLayer) map.removeLayer(polygonLayer);
+      if (polylineLayer) map.removeLayer(polylineLayer);
+      markers.forEach(m => map.removeLayer(m));
+      markers = [];
+      updateUI(0, 0);
       startBtn.disabled = false;
       stopBtn.disabled = true;
       closeBtn.disabled = true;
-
-      updateStatus('🎯 Click "Start Walking" to begin. Make sure to allow location access!');
     }
 
-    // Event listeners
     startBtn.addEventListener('click', startTracking);
-    stopBtn.addEventListener('click', () => {
-      stopTracking();
-      calculateAndDisplay();
-    });
-    closeBtn.addEventListener('click', calculateAndDisplay);
+    stopBtn.addEventListener('click', stopTracking);
+    closeBtn.addEventListener('click', closeShape);
     clearBtn.addEventListener('click', clearAll);
-
-    // Click on map to manually add points (for testing)
-    map.on('click', function(e) {
-      if (isTracking) {
-        addPointToPath(e.latlng);
-      }
-    });
-
   </script>
-
 </body>
 </html>
