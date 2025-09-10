@@ -14,16 +14,16 @@
       font-family: Arial, sans-serif;
     }
     #map {
-      height: 80vh;
+      height: 75vh;
       width: 100%;
     }
     #controls {
       padding: 10px;
-      background: #f4f4f4;
+      background: #f9f9f9;
       text-align: center;
     }
     #controls button {
-      padding: 10px 16px;
+      padding: 10px 14px;
       margin: 5px;
       font-size: 16px;
       border: none;
@@ -38,12 +38,14 @@
     }
     #info {
       padding: 10px;
+      font-size: 15px;
       text-align: center;
-      font-size: 16px;
-      background: #fafafa;
+      background: #f0f0f0;
     }
-    #info span {
-      font-weight: bold;
+    #status {
+      font-size: 14px;
+      color: #333;
+      padding: 5px;
     }
   </style>
 </head>
@@ -52,19 +54,18 @@
   <div id="controls">
     <button id="startBtn">Start</button>
     <button id="stopBtn" disabled>Stop</button>
+    <button id="closeBtn" disabled>Close Shape</button>
     <button id="clearBtn">Clear</button>
   </div>
 
   <div id="map"></div>
 
   <div id="info">
-    📏 <strong>Area:</strong>
-    <span id="areaSqm">0</span> m² /
-    <span id="areaAcres">0</span> acres |
+    📏 <strong>Area:</strong> <span id="areaSqm">0</span> m² / <span id="areaAcres">0</span> acres |
     🔁 <strong>Perimeter:</strong> <span id="perimeter">0</span> m
+    <div id="status"></div>
   </div>
 
-  <!-- Leaflet and Turf.js -->
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
   <script src="https://unpkg.com/@turf/turf/turf.min.js"></script>
 
@@ -78,28 +79,25 @@
     let polygonLayer = null;
     let watchId = null;
     let isTracking = false;
-    const CLOSE_DISTANCE = 10; // meters to auto-close polygon
 
     const startBtn = document.getElementById('startBtn');
     const stopBtn = document.getElementById('stopBtn');
     const clearBtn = document.getElementById('clearBtn');
+    const closeBtn = document.getElementById('closeBtn');
     const areaSqmDisplay = document.getElementById('areaSqm');
     const areaAcresDisplay = document.getElementById('areaAcres');
     const perimeterDisplay = document.getElementById('perimeter');
+    const statusDisplay = document.getElementById('status');
+
+    function updateStatus() {
+      statusDisplay.innerText = `Tracking: ${isTracking ? 'ON' : 'OFF'} | Points: ${pathPoints.length}`;
+    }
 
     function addPoint(latlng) {
       if (!isTracking) return;
       pathPoints.push(latlng);
       L.circleMarker(latlng, { radius: 4, color: 'red' }).addTo(map);
-
-      if (pathPoints.length >= 3) {
-        const distanceToStart = map.distance(latlng, pathPoints[0]);
-        if (distanceToStart <= CLOSE_DISTANCE) {
-          stopTracking();
-          drawPolygon();
-          return;
-        }
-      }
+      updateStatus();
       drawPolygon();
     }
 
@@ -115,11 +113,11 @@
 
     function calculateArea() {
       const coords = pathPoints.map(p => [p.lng, p.lat]);
-      coords.push([pathPoints[0].lng, pathPoints[0].lat]); // Close the polygon
+      coords.push([pathPoints[0].lng, pathPoints[0].lat]); // close shape
 
       const polygon = turf.polygon([coords]);
       const areaSqm = turf.area(polygon);
-      const areaAcres = areaSqm * 0.000247105; // convert sq meters to acres
+      const areaAcres = areaSqm * 0.000247105;
       const perimeter = turf.length(turf.lineString(coords), { units: 'meters' });
 
       areaSqmDisplay.innerText = areaSqm.toFixed(2);
@@ -129,13 +127,14 @@
 
     function startTracking() {
       if (!navigator.geolocation) {
-        alert('Geolocation is not supported by your browser.');
+        alert('Geolocation is not supported.');
         return;
       }
 
       isTracking = true;
       startBtn.disabled = true;
       stopBtn.disabled = false;
+      closeBtn.disabled = false;
 
       watchId = navigator.geolocation.watchPosition(
         position => {
@@ -145,14 +144,16 @@
           map.setView(latlng, 18);
         },
         error => {
-          alert("Error getting location: " + error.message);
+          alert("Location error: " + error.message);
         },
         {
           enableHighAccuracy: true,
           maximumAge: 1000,
-          timeout: 10000
+          timeout: 20000
         }
       );
+
+      updateStatus();
     }
 
     function stopTracking() {
@@ -163,11 +164,15 @@
       isTracking = false;
       startBtn.disabled = false;
       stopBtn.disabled = true;
+      closeBtn.disabled = false;
+      updateStatus();
     }
 
     function clearMap() {
       stopTracking();
       pathPoints = [];
+      updateStatus();
+
       if (polygonLayer) {
         map.removeLayer(polygonLayer);
         polygonLayer = null;
@@ -182,11 +187,25 @@
       areaSqmDisplay.innerText = "0";
       areaAcresDisplay.innerText = "0";
       perimeterDisplay.innerText = "0";
+      closeBtn.disabled = true;
+    }
+
+    function closeShape() {
+      if (pathPoints.length >= 3) {
+        pathPoints.push(pathPoints[0]); // force close
+        drawPolygon();
+        stopTracking();
+        closeBtn.disabled = true;
+      } else {
+        alert("You need at least 3 points to close the shape.");
+      }
     }
 
     startBtn.addEventListener('click', startTracking);
     stopBtn.addEventListener('click', stopTracking);
     clearBtn.addEventListener('click', clearMap);
+    closeBtn.addEventListener('click', closeShape);
   </script>
+
 </body>
 </html>
