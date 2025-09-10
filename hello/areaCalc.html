@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Land Area Calculator (GPS)</title>
+  <title>Smart Land Area Calculator</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
   <style>
     * {
@@ -12,58 +12,163 @@
     body {
       margin: 0;
       font-family: Arial, sans-serif;
+      background: #f5f5f5;
+    }
+    #header {
+      background: linear-gradient(135deg, #2c3e50, #34495e);
+      color: white;
+      padding: 15px;
+      text-align: center;
+    }
+    #header h1 {
+      margin: 0;
+      font-size: 24px;
+    }
+    #header p {
+      margin: 5px 0 0 0;
+      opacity: 0.9;
+      font-size: 14px;
     }
     #map {
-      height: 75vh;
+      height: 60vh;
       width: 100%;
     }
     #controls {
-      padding: 10px;
-      background: #f9f9f9;
+      padding: 15px;
+      background: white;
       text-align: center;
+      box-shadow: 0 2px 4px rgba(0,0,0,0.1);
     }
     #controls button {
-      padding: 10px 14px;
+      padding: 12px 20px;
       margin: 5px;
       font-size: 16px;
       border: none;
-      background: #007bff;
-      color: white;
-      border-radius: 5px;
+      border-radius: 8px;
       cursor: pointer;
+      font-weight: bold;
+      transition: all 0.3s ease;
+    }
+    #startBtn {
+      background: linear-gradient(135deg, #27ae60, #2ecc71);
+      color: white;
+    }
+    #stopBtn {
+      background: linear-gradient(135deg, #f39c12, #e67e22);
+      color: white;
+    }
+    #closeBtn {
+      background: linear-gradient(135deg, #3498db, #2980b9);
+      color: white;
+    }
+    #clearBtn {
+      background: linear-gradient(135deg, #e74c3c, #c0392b);
+      color: white;
     }
     #controls button:disabled {
-      background: #aaa;
+      background: #bdc3c7;
       cursor: not-allowed;
+      opacity: 0.6;
+    }
+    #controls button:not(:disabled):hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 8px rgba(0,0,0,0.2);
     }
     #info {
+      padding: 20px;
+      background: white;
+      margin: 10px;
+      border-radius: 10px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    .metric-row {
+      display: flex;
+      justify-content: space-between;
+      margin: 10px 0;
       padding: 10px;
-      font-size: 15px;
-      text-align: center;
-      background: #f0f0f0;
+      background: #f8f9fa;
+      border-radius: 8px;
+      border-left: 4px solid #3498db;
+    }
+    .metric-label {
+      font-weight: bold;
+      color: #2c3e50;
+    }
+    .metric-value {
+      font-size: 18px;
+      color: #27ae60;
+      font-weight: bold;
     }
     #status {
+      margin-top: 15px;
+      padding: 10px;
+      background: #ecf0f1;
+      border-radius: 8px;
       font-size: 14px;
-      color: #333;
-      padding: 5px;
+      color: #2c3e50;
+    }
+    .status-good { background: #d5f4e6; color: #27ae60; }
+    .status-warning { background: #ffeaa7; color: #d63031; }
+    .smart-indicator {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      margin-right: 8px;
+    }
+    .smart-excellent { background: #27ae60; }
+    .smart-good { background: #f39c12; }
+    .smart-poor { background: #e74c3c; }
+    #instructions {
+      margin: 10px;
+      padding: 15px;
+      background: #e8f5e8;
+      border-radius: 8px;
+      border-left: 4px solid #27ae60;
     }
   </style>
 </head>
 <body>
 
+  <div id="header">
+    <h1>🌍 Smart Land Area Calculator</h1>
+    <p>Just walk around your land - we handle all the technical stuff!</p>
+  </div>
+
+  <div id="instructions">
+    <strong>📋 How to use:</strong><br>
+    1️⃣ Click "Start Walking" and begin at any corner<br>
+    2️⃣ Walk around your property boundary<br>
+    3️⃣ Click "Stop & Calculate" when you return to start<br>
+    <small>💡 The app automatically optimizes for accuracy!</small>
+  </div>
+
   <div id="controls">
-    <button id="startBtn">Start</button>
-    <button id="stopBtn" disabled>Stop</button>
-    <button id="closeBtn" disabled>Close Shape</button>
-    <button id="clearBtn">Clear</button>
+    <button id="startBtn">🚶‍♂️ Start Walking</button>
+    <button id="stopBtn" disabled>⏹️ Stop & Calculate</button>
+    <button id="clearBtn">🗑️ Clear & Restart</button>
   </div>
 
   <div id="map"></div>
 
   <div id="info">
-    📏 <strong>Area:</strong> <span id="areaSqm">0</span> m² / <span id="areaAcres">0</span> acres |
-    🔁 <strong>Perimeter:</strong> <span id="perimeter">0</span> m
-    <div id="status"></div>
+    <div class="metric-row">
+      <span class="metric-label">📏 Area (Square Meters)</span>
+      <span class="metric-value" id="areaSqm">0</span>
+    </div>
+    <div class="metric-row">
+      <span class="metric-label">🏡 Area (Acres)</span>
+      <span class="metric-value" id="areaAcres">0</span>
+    </div>
+    <div class="metric-row">
+      <span class="metric-label">🌾 Area (Hectares)</span>
+      <span class="metric-value" id="areaHectares">0</span>
+    </div>
+    <div class="metric-row">
+      <span class="metric-label">🔄 Perimeter</span>
+      <span class="metric-value"><span id="perimeter">0</span> m / <span id="perimeterKm">0</span> km</span>
+    </div>
+    <div id="status">🎯 Ready to start measuring your land</div>
   </div>
 
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
@@ -72,140 +177,430 @@
   <script>
     const map = L.map('map').setView([20, 77], 5);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      maxZoom: 19
+      maxZoom: 19,
+      attribution: '© OpenStreetMap contributors'
     }).addTo(map);
 
     let pathPoints = [];
+    let polylineLayer = null;
     let polygonLayer = null;
     let watchId = null;
     let isTracking = false;
+    let lastAddedPoint = null;
+    let currentLocationMarker = null;
+    let pointMarkers = [];
+    let accuracyHistory = [];
+    let distanceHistory = [];
+    
+    // Smart auto-adjustment variables
+    let smartMinDistance = 5; // Will be auto-adjusted
+    let smartAccuracyThreshold = 10; // Will be auto-adjusted
+    let totalDistance = 0;
+    let startTime = null;
 
     const startBtn = document.getElementById('startBtn');
     const stopBtn = document.getElementById('stopBtn');
     const clearBtn = document.getElementById('clearBtn');
-    const closeBtn = document.getElementById('closeBtn');
     const areaSqmDisplay = document.getElementById('areaSqm');
     const areaAcresDisplay = document.getElementById('areaAcres');
+    const areaHectaresDisplay = document.getElementById('areaHectares');
     const perimeterDisplay = document.getElementById('perimeter');
+    const perimeterKmDisplay = document.getElementById('perimeterKm');
     const statusDisplay = document.getElementById('status');
 
-    function updateStatus() {
-      statusDisplay.innerText = `Tracking: ${isTracking ? 'ON' : 'OFF'} | Points: ${pathPoints.length}`;
+    function getDistance(lat1, lng1, lat2, lng2) {
+      const R = 6371e3;
+      const φ1 = lat1 * Math.PI/180;
+      const φ2 = lat2 * Math.PI/180;
+      const Δφ = (lat2-lat1) * Math.PI/180;
+      const Δλ = (lng2-lng1) * Math.PI/180;
+
+      const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
+                Math.cos(φ1) * Math.cos(φ2) *
+                Math.sin(Δλ/2) * Math.sin(Δλ/2);
+      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+
+      return R * c;
     }
 
-    function addPoint(latlng) {
+    function smartAdjustSettings() {
+      // Auto-adjust based on walking patterns and accuracy
+      const avgAccuracy = accuracyHistory.slice(-10).reduce((a, b) => a + b, 0) / Math.min(accuracyHistory.length, 10);
+      const avgDistance = distanceHistory.slice(-5).reduce((a, b) => a + b, 0) / Math.min(distanceHistory.length, 5);
+      
+      // Adjust accuracy threshold based on GPS quality
+      if (avgAccuracy < 5) {
+        smartAccuracyThreshold = 8; // Excellent GPS
+      } else if (avgAccuracy < 12) {
+        smartAccuracyThreshold = 15; // Good GPS
+      } else {
+        smartAccuracyThreshold = 25; // Poor GPS, be more lenient
+      }
+
+      // Adjust minimum distance based on property size estimation
+      if (totalDistance > 2000) { // Large property (>500m perimeter)
+        smartMinDistance = Math.max(15, avgDistance * 0.8);
+      } else if (totalDistance > 500) { // Medium property
+        smartMinDistance = Math.max(8, avgDistance * 0.6);
+      } else { // Small property
+        smartMinDistance = Math.max(3, avgDistance * 0.4);
+      }
+
+      // Cap the values
+      smartMinDistance = Math.min(smartMinDistance, 50);
+      smartAccuracyThreshold = Math.min(smartAccuracyThreshold, 30);
+    }
+
+    function updateStatus(accuracy = null, pointsRejected = 0) {
+      const timeElapsed = startTime ? Math.floor((Date.now() - startTime) / 1000) : 0;
+      const minutes = Math.floor(timeElapsed / 60);
+      const seconds = timeElapsed % 60;
+      
+      let statusText = '';
+      let statusClass = '';
+
+      if (isTracking) {
+        const qualityIndicator = accuracy <= 8 ? '🟢' : accuracy <= 15 ? '🟡' : '🔴';
+        statusText = `${qualityIndicator} Walking: ${minutes}:${seconds.toString().padStart(2, '0')} | Points: ${pathPoints.length} | Distance: ${totalDistance.toFixed(0)}m`;
+        
+        if (accuracy) {
+          statusText += ` | GPS: ${accuracy.toFixed(1)}m`;
+        }
+        
+        if (pointsRejected > 0) {
+          statusText += ` | Filtered: ${pointsRejected} poor readings`;
+        }
+        
+        statusClass = accuracy <= 12 ? 'status-good' : 'status-warning';
+      } else if (pathPoints.length > 0) {
+        statusText = `✅ Measurement complete! Total boundary: ${totalDistance.toFixed(0)}m`;
+        statusClass = 'status-good';
+      } else {
+        statusText = '🎯 Ready to start measuring your land';
+        statusClass = '';
+      }
+
+      statusDisplay.innerHTML = statusText;
+      statusDisplay.className = statusClass;
+    }
+
+    function updateCurrentLocation(latlng, accuracy) {
+      if (currentLocationMarker) {
+        map.removeLayer(currentLocationMarker);
+      }
+      
+      currentLocationMarker = L.circle(latlng, {
+        radius: Math.max(accuracy, 3),
+        color: accuracy <= 8 ? '#27ae60' : accuracy <= 15 ? '#f39c12' : '#e74c3c',
+        fillColor: accuracy <= 8 ? '#d5f4e6' : accuracy <= 15 ? '#ffeaa7' : '#ffcdd2',
+        fillOpacity: 0.3,
+        weight: 2
+      }).addTo(map);
+
+      L.circleMarker(latlng, {
+        radius: 4,
+        color: 'white',
+        fillColor: '#3498db',
+        fillOpacity: 1,
+        weight: 2
+      }).addTo(currentLocationMarker);
+    }
+
+    function addPoint(latlng, accuracy) {
       if (!isTracking) return;
+
+      // Track accuracy for smart adjustments
+      accuracyHistory.push(accuracy);
+      if (accuracyHistory.length > 20) accuracyHistory.shift();
+
+      // Check GPS accuracy with smart threshold
+      if (accuracy > smartAccuracyThreshold) {
+        updateStatus(accuracy, 1);
+        return;
+      }
+
+      // Check minimum distance with smart threshold
+      if (lastAddedPoint) {
+        const distance = getDistance(
+          lastAddedPoint.lat, lastAddedPoint.lng,
+          latlng.lat, latlng.lng
+        );
+        
+        distanceHistory.push(distance);
+        if (distanceHistory.length > 10) distanceHistory.shift();
+        
+        if (distance < smartMinDistance) {
+          updateStatus(accuracy, 0);
+          return;
+        }
+        
+        totalDistance += distance;
+      }
+
+      // Smart adjustment every 5 points
+      if (pathPoints.length % 5 === 0 && pathPoints.length > 0) {
+        smartAdjustSettings();
+      }
+
+      // Add the point
       pathPoints.push(latlng);
-      L.circleMarker(latlng, { radius: 4, color: 'red' }).addTo(map);
-      updateStatus();
-      drawPolygon();
+      lastAddedPoint = latlng;
+
+      // Create smart marker
+      const markerColor = pathPoints.length === 1 ? '#e74c3c' : '#27ae60';
+      const marker = L.circleMarker(latlng, {
+        radius: pathPoints.length === 1 ? 8 : 6,
+        color: 'white',
+        fillColor: markerColor,
+        fillOpacity: 0.9,
+        weight: 2
+      }).addTo(map);
+      
+      if (pathPoints.length === 1) {
+        marker.bindTooltip('START', {
+          permanent: true,
+          direction: 'top',
+          offset: [0, -15],
+          className: 'start-tooltip'
+        });
+      } else {
+        marker.bindTooltip(`${pathPoints.length}`, {
+          permanent: true,
+          direction: 'top',
+          offset: [0, -10],
+          className: 'point-tooltip'
+        });
+      }
+      
+      pointMarkers.push(marker);
+      updateStatus(accuracy, 0);
+      drawPath();
     }
 
-    function drawPolygon() {
+    function drawPath() {
+      if (polylineLayer) {
+        map.removeLayer(polylineLayer);
+      }
+
+      if (pathPoints.length >= 2) {
+        polylineLayer = L.polyline(pathPoints, {
+          color: '#3498db',
+          weight: 4,
+          opacity: 0.8,
+          dashArray: '10, 5'
+        }).addTo(map);
+
+        // Add arrow indicators for direction
+        const lastTwo = pathPoints.slice(-2);
+        if (lastTwo.length === 2) {
+          const bearing = Math.atan2(
+            lastTwo[1].lng - lastTwo[0].lng,
+            lastTwo[1].lat - lastTwo[0].lat
+          ) * 180 / Math.PI;
+          
+          L.marker(lastTwo[1], {
+            icon: L.divIcon({
+              html: '▲',
+              className: 'direction-arrow',
+              iconSize: [12, 12],
+              iconAnchor: [6, 6]
+            }),
+            rotationAngle: bearing
+          }).addTo(polylineLayer);
+        }
+      }
+    }
+
+    function drawFinalPolygon() {
+      if (polylineLayer) {
+        map.removeLayer(polylineLayer);
+      }
       if (polygonLayer) {
         map.removeLayer(polygonLayer);
       }
+
       if (pathPoints.length >= 3) {
-        polygonLayer = L.polygon(pathPoints, { color: 'green' }).addTo(map);
+        polygonLayer = L.polygon(pathPoints, {
+          color: '#27ae60',
+          weight: 4,
+          fillColor: '#d5f4e6',
+          fillOpacity: 0.4
+        }).addTo(map);
+        
         calculateArea();
+        
+        // Fit map to show entire polygon
+        map.fitBounds(polygonLayer.getBounds(), { padding: [20, 20] });
       }
     }
 
     function calculateArea() {
+      if (pathPoints.length < 3) return;
+
       const coords = pathPoints.map(p => [p.lng, p.lat]);
-      coords.push([pathPoints[0].lng, pathPoints[0].lat]); // close shape
+      coords.push([pathPoints[0].lng, pathPoints[0].lat]);
 
       const polygon = turf.polygon([coords]);
       const areaSqm = turf.area(polygon);
       const areaAcres = areaSqm * 0.000247105;
-      const perimeter = turf.length(turf.lineString(coords), { units: 'meters' });
+      const areaHectares = areaSqm * 0.0001;
+      const perimeterMeters = turf.length(turf.lineString(coords), { units: 'meters' });
+      const perimeterKm = perimeterMeters / 1000;
 
-      areaSqmDisplay.innerText = areaSqm.toFixed(2);
+      areaSqmDisplay.innerText = areaSqm.toLocaleString(undefined, {maximumFractionDigits: 2});
       areaAcresDisplay.innerText = areaAcres.toFixed(4);
-      perimeterDisplay.innerText = perimeter.toFixed(2);
+      areaHectaresDisplay.innerText = areaHectares.toFixed(4);
+      perimeterDisplay.innerText = perimeterMeters.toFixed(0);
+      perimeterKmDisplay.innerText = perimeterKm.toFixed(3);
     }
 
     function startTracking() {
       if (!navigator.geolocation) {
-        alert('Geolocation is not supported.');
+        alert('❌ GPS is not available on your device.');
         return;
       }
 
+      // Reset everything
       isTracking = true;
+      startTime = Date.now();
+      totalDistance = 0;
+      accuracyHistory = [];
+      distanceHistory = [];
+      smartMinDistance = 5;
+      smartAccuracyThreshold = 10;
+      lastAddedPoint = null;
+      
       startBtn.disabled = true;
       stopBtn.disabled = false;
-      closeBtn.disabled = false;
 
       watchId = navigator.geolocation.watchPosition(
         position => {
-          const { latitude, longitude } = position.coords;
+          const { latitude, longitude, accuracy } = position.coords;
           const latlng = L.latLng(latitude, longitude);
-          addPoint(latlng);
-          map.setView(latlng, 18);
+          
+          updateCurrentLocation(latlng, accuracy);
+          addPoint(latlng, accuracy);
+          
+          if (pathPoints.length === 1) {
+            map.setView(latlng, 18);
+          }
         },
         error => {
-          alert("Location error: " + error.message);
+          alert(`❌ GPS Error: ${error.message}`);
+          console.error('GPS Error:', error);
         },
         {
           enableHighAccuracy: true,
           maximumAge: 1000,
-          timeout: 20000
+          timeout: 10000
         }
       );
 
       updateStatus();
     }
 
-    function stopTracking() {
+    function stopTrackingAndCalculate() {
       if (watchId !== null) {
         navigator.geolocation.clearWatch(watchId);
         watchId = null;
       }
+      
+      if (currentLocationMarker) {
+        map.removeLayer(currentLocationMarker);
+        currentLocationMarker = null;
+      }
+
       isTracking = false;
       startBtn.disabled = false;
       stopBtn.disabled = true;
-      closeBtn.disabled = false;
-      updateStatus();
-    }
 
-    function clearMap() {
-      stopTracking();
-      pathPoints = [];
-      updateStatus();
-
-      if (polygonLayer) {
-        map.removeLayer(polygonLayer);
-        polygonLayer = null;
+      if (pathPoints.length < 3) {
+        alert('❌ Need at least 3 points to calculate area. Keep walking!');
+        return;
       }
 
-      map.eachLayer(layer => {
-        if (layer instanceof L.CircleMarker) {
-          map.removeLayer(layer);
-        }
-      });
+      drawFinalPolygon();
+      updateStatus();
+      
+      // Show completion message
+      setTimeout(() => {
+        alert(`✅ Area calculation complete!\n📏 Area: ${areaAcresDisplay.innerText} acres\n🔄 Perimeter: ${perimeterDisplay.innerText} meters`);
+      }, 500);
+    }
 
+    function clearAll() {
+      if (watchId !== null) {
+        navigator.geolocation.clearWatch(watchId);
+        watchId = null;
+      }
+      
+      // Reset all variables
+      isTracking = false;
+      pathPoints = [];
+      totalDistance = 0;
+      startTime = null;
+      lastAddedPoint = null;
+      accuracyHistory = [];
+      distanceHistory = [];
+
+      // Remove all layers
+      [polylineLayer, polygonLayer, currentLocationMarker].forEach(layer => {
+        if (layer) map.removeLayer(layer);
+      });
+      polylineLayer = polygonLayer = currentLocationMarker = null;
+
+      // Remove point markers
+      pointMarkers.forEach(marker => map.removeLayer(marker));
+      pointMarkers = [];
+
+      // Reset UI
       areaSqmDisplay.innerText = "0";
       areaAcresDisplay.innerText = "0";
+      areaHectaresDisplay.innerText = "0";
       perimeterDisplay.innerText = "0";
-      closeBtn.disabled = true;
+      perimeterKmDisplay.innerText = "0";
+      
+      startBtn.disabled = false;
+      stopBtn.disabled = true;
+      
+      updateStatus();
     }
 
-    function closeShape() {
-      if (pathPoints.length >= 3) {
-        pathPoints.push(pathPoints[0]); // force close
-        drawPolygon();
-        stopTracking();
-        closeBtn.disabled = true;
-      } else {
-        alert("You need at least 3 points to close the shape.");
-      }
-    }
-
+    // Event listeners
     startBtn.addEventListener('click', startTracking);
-    stopBtn.addEventListener('click', stopTracking);
-    clearBtn.addEventListener('click', clearMap);
-    closeBtn.addEventListener('click', closeShape);
+    stopBtn.addEventListener('click', stopTrackingAndCalculate);
+    clearBtn.addEventListener('click', clearAll);
+
+    // Initialize
+    updateStatus();
   </script>
+
+  <style>
+    .point-tooltip {
+      background: white;
+      border: 2px solid #27ae60;
+      border-radius: 4px;
+      padding: 2px 6px;
+      font-size: 12px;
+      font-weight: bold;
+      color: #27ae60;
+    }
+    .start-tooltip {
+      background: #e74c3c;
+      border: 2px solid #c0392b;
+      border-radius: 4px;
+      padding: 3px 8px;
+      font-size: 11px;
+      font-weight: bold;
+      color: white;
+    }
+    .direction-arrow {
+      color: #3498db;
+      font-size: 16px;
+      text-align: center;
+      line-height: 12px;
+    }
+  </style>
 
 </body>
 </html>
