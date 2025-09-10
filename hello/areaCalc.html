@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Smart Land Area Calculator</title>
+  <title> Land Area Calculator</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
   <style>
     * {
@@ -109,16 +109,6 @@
     }
     .status-good { background: #d5f4e6; color: #27ae60; }
     .status-warning { background: #ffeaa7; color: #d63031; }
-    .smart-indicator {
-      display: inline-block;
-      width: 12px;
-      height: 12px;
-      border-radius: 50%;
-      margin-right: 8px;
-    }
-    .smart-excellent { background: #27ae60; }
-    .smart-good { background: #f39c12; }
-    .smart-poor { background: #e74c3c; }
     #instructions {
       margin: 10px;
       padding: 15px;
@@ -143,12 +133,6 @@
       font-size: 11px;
       font-weight: bold;
       color: white;
-    }
-    .direction-arrow {
-      color: #3498db;
-      font-size: 16px;
-      text-align: center;
-      line-height: 12px;
     }
   </style>
 </head>
@@ -214,14 +198,13 @@
     let lastAddedPoint = null;
     let currentLocationMarker = null;
     let pointMarkers = [];
-    let accuracyHistory = [];
-    let distanceHistory = [];
-    
-    // Smart auto-adjustment variables
-    let smartMinDistance = 5;
-    let smartAccuracyThreshold = 10;
     let totalDistance = 0;
     let startTime = null;
+    let firstLocation = true;
+
+    // Simplified thresholds for better reliability
+    const MIN_DISTANCE = 3; // meters
+    const MAX_ACCURACY = 20; // meters
 
     const startBtn = document.getElementById('startBtn');
     const stopBtn = document.getElementById('stopBtn');
@@ -235,7 +218,7 @@
     const statusDisplay = document.getElementById('status');
 
     function getDistance(lat1, lng1, lat2, lng2) {
-      const R = 6371e3;
+      const R = 6371e3; // Earth's radius in meters
       const φ1 = lat1 * Math.PI/180;
       const φ2 = lat2 * Math.PI/180;
       const Δφ = (lat2-lat1) * Math.PI/180;
@@ -249,31 +232,7 @@
       return R * c;
     }
 
-    function smartAdjustSettings() {
-      const avgAccuracy = accuracyHistory.slice(-10).reduce((a, b) => a + b, 0) / Math.min(accuracyHistory.length, 10);
-      const avgDistance = distanceHistory.slice(-5).reduce((a, b) => a + b, 0) / Math.min(distanceHistory.length, 5);
-      
-      if (avgAccuracy < 5) {
-        smartAccuracyThreshold = 8;
-      } else if (avgAccuracy < 12) {
-        smartAccuracyThreshold = 15;
-      } else {
-        smartAccuracyThreshold = 25;
-      }
-
-      if (totalDistance > 2000) {
-        smartMinDistance = Math.max(15, avgDistance * 0.8);
-      } else if (totalDistance > 500) {
-        smartMinDistance = Math.max(8, avgDistance * 0.6);
-      } else {
-        smartMinDistance = Math.max(3, avgDistance * 0.4);
-      }
-
-      smartMinDistance = Math.min(smartMinDistance, 50);
-      smartAccuracyThreshold = Math.min(smartAccuracyThreshold, 30);
-    }
-
-    function updateStatus(accuracy = null, pointsRejected = 0) {
+    function updateStatus() {
       const timeElapsed = startTime ? Math.floor((Date.now() - startTime) / 1000) : 0;
       const minutes = Math.floor(timeElapsed / 60);
       const seconds = timeElapsed % 60;
@@ -282,20 +241,10 @@
       let statusClass = '';
 
       if (isTracking) {
-        const qualityIndicator = accuracy <= 8 ? '🟢' : accuracy <= 15 ? '🟡' : '🔴';
-        statusText = `${qualityIndicator} Walking: ${minutes}:${seconds.toString().padStart(2, '0')} | Points: ${pathPoints.length} | Distance: ${totalDistance.toFixed(0)}m`;
-        
-        if (accuracy) {
-          statusText += ` | GPS: ${accuracy.toFixed(1)}m`;
-        }
-        
-        if (pointsRejected > 0) {
-          statusText += ` | Filtered: ${pointsRejected} poor readings`;
-        }
-        
-        statusClass = accuracy <= 12 ? 'status-good' : 'status-warning';
+        statusText = `🟢 Walking: ${minutes}:${seconds.toString().padStart(2, '0')} | Points: ${pathPoints.length} | Distance: ${totalDistance.toFixed(0)}m`;
+        statusClass = 'status-good';
       } else if (pathPoints.length > 0) {
-        statusText = `✅ Measurement complete! Total boundary: ${totalDistance.toFixed(0)}m`;
+        statusText = `✅ Measurement complete! Total points: ${pathPoints.length} | Boundary: ${totalDistance.toFixed(0)}m`;
         statusClass = 'status-good';
       } else {
         statusText = '🎯 Ready to start measuring your land';
@@ -307,18 +256,21 @@
     }
 
     function updateCurrentLocation(latlng, accuracy) {
+      // Remove previous current location marker
       if (currentLocationMarker) {
         map.removeLayer(currentLocationMarker);
       }
       
+      // Show current location with accuracy circle
       currentLocationMarker = L.circle(latlng, {
         radius: Math.max(accuracy, 3),
-        color: accuracy <= 8 ? '#27ae60' : accuracy <= 15 ? '#f39c12' : '#e74c3c',
-        fillColor: accuracy <= 8 ? '#d5f4e6' : accuracy <= 15 ? '#ffeaa7' : '#ffcdd2',
+        color: accuracy <= 10 ? '#27ae60' : accuracy <= 20 ? '#f39c12' : '#e74c3c',
+        fillColor: accuracy <= 10 ? '#d5f4e6' : accuracy <= 20 ? '#ffeaa7' : '#ffcdd2',
         fillOpacity: 0.3,
         weight: 2
       }).addTo(map);
 
+      // Add center dot
       L.circleMarker(latlng, {
         radius: 4,
         color: 'white',
@@ -331,66 +283,87 @@
     function addPoint(latlng, accuracy) {
       if (!isTracking) return;
 
-      accuracyHistory.push(accuracy);
-      if (accuracyHistory.length > 20) accuracyHistory.shift();
+      console.log(`GPS Update - Lat: ${latlng.lat}, Lng: ${latlng.lng}, Accuracy: ${accuracy}m`);
 
-      if (accuracy > smartAccuracyThreshold) {
-        updateStatus(accuracy, 1);
+      // Skip points with poor accuracy
+      if (accuracy > MAX_ACCURACY) {
+        console.log('Skipped point - poor accuracy');
         return;
       }
 
+      // For the first point, always add it
+      if (pathPoints.length === 0) {
+        pathPoints.push(latlng);
+        lastAddedPoint = latlng;
+        
+        // Create START marker
+        const startMarker = L.circleMarker(latlng, {
+          radius: 8,
+          color: 'white',
+          fillColor: '#e74c3c',
+          fillOpacity: 0.9,
+          weight: 3
+        }).addTo(map);
+        
+        startMarker.bindTooltip('START', {
+          permanent: true,
+          direction: 'top',
+          offset: [0, -15],
+          className: 'start-tooltip'
+        });
+        
+        pointMarkers.push(startMarker);
+        
+        // Center map on first location
+        map.setView(latlng, 18);
+        firstLocation = false;
+        
+        console.log('Added START point');
+        updateStatus();
+        return;
+      }
+
+      // Check minimum distance from last point
       if (lastAddedPoint) {
         const distance = getDistance(
           lastAddedPoint.lat, lastAddedPoint.lng,
           latlng.lat, latlng.lng
         );
         
-        distanceHistory.push(distance);
-        if (distanceHistory.length > 10) distanceHistory.shift();
-        
-        if (distance < smartMinDistance) {
-          updateStatus(accuracy, 0);
+        if (distance < MIN_DISTANCE) {
+          console.log(`Skipped point - too close (${distance.toFixed(1)}m)`);
           return;
         }
         
         totalDistance += distance;
       }
 
-      if (pathPoints.length % 5 === 0 && pathPoints.length > 0) {
-        smartAdjustSettings();
-      }
-
+      // Add the point
       pathPoints.push(latlng);
       lastAddedPoint = latlng;
 
-      const markerColor = pathPoints.length === 1 ? '#e74c3c' : '#27ae60';
+      // Create point marker
       const marker = L.circleMarker(latlng, {
-        radius: pathPoints.length === 1 ? 8 : 6,
+        radius: 6,
         color: 'white',
-        fillColor: markerColor,
+        fillColor: '#27ae60',
         fillOpacity: 0.9,
         weight: 2
       }).addTo(map);
       
-      if (pathPoints.length === 1) {
-        marker.bindTooltip('START', {
-          permanent: true,
-          direction: 'top',
-          offset: [0, -15],
-          className: 'start-tooltip'
-        });
-      } else {
-        marker.bindTooltip(`${pathPoints.length}`, {
-          permanent: true,
-          direction: 'top',
-          offset: [0, -10],
-          className: 'point-tooltip'
-        });
-      }
+      marker.bindTooltip(`${pathPoints.length}`, {
+        permanent: true,
+        direction: 'top',
+        offset: [0, -10],
+        className: 'point-tooltip'
+      });
       
       pointMarkers.push(marker);
-      updateStatus(accuracy, 0);
+
+      console.log(`Added point ${pathPoints.length}`);
+      
       drawPath();
+      updateStatus();
       
       // Enable close button when we have enough points
       if (pathPoints.length >= 3) {
@@ -399,29 +372,45 @@
     }
 
     function drawPath() {
+      // Remove existing path
       if (polylineLayer) {
         map.removeLayer(polylineLayer);
       }
 
       if (pathPoints.length >= 2) {
+        // Draw the walking path
         polylineLayer = L.polyline(pathPoints, {
           color: '#3498db',
           weight: 4,
           opacity: 0.8,
           dashArray: '10, 5'
         }).addTo(map);
+
+        console.log(`Drew path with ${pathPoints.length} points`);
+        
+        // Keep the current location visible by adjusting map bounds
+        if (pathPoints.length > 1) {
+          const group = new L.featureGroup(pointMarkers);
+          if (currentLocationMarker) {
+            group.addLayer(currentLocationMarker);
+          }
+          map.fitBounds(group.getBounds().pad(0.1));
+        }
       }
     }
 
     function drawFinalPolygon() {
+      // Remove path line
       if (polylineLayer) {
         map.removeLayer(polylineLayer);
       }
+      // Remove existing polygon
       if (polygonLayer) {
         map.removeLayer(polygonLayer);
       }
 
       if (pathPoints.length >= 3) {
+        // Create final polygon
         polygonLayer = L.polygon(pathPoints, {
           color: '#27ae60',
           weight: 4,
@@ -430,20 +419,30 @@
         }).addTo(map);
         
         calculateArea();
+        
+        // Fit map to show entire polygon
         map.fitBounds(polygonLayer.getBounds(), { padding: [20, 20] });
+        
+        console.log('Drew final polygon');
       }
     }
 
     function calculateArea() {
-      if (pathPoints.length < 3) return;
+      if (pathPoints.length < 3) {
+        console.log('Cannot calculate area - less than 3 points');
+        return;
+      }
 
       try {
+        // Convert to turf format
         const coords = pathPoints.map(p => [p.lng, p.lat]);
-        // Make sure polygon is closed
+        
+        // Ensure polygon is closed
         if (coords[0][0] !== coords[coords.length-1][0] || coords[0][1] !== coords[coords.length-1][1]) {
           coords.push([pathPoints[0].lng, pathPoints[0].lat]);
         }
 
+        // Calculate area and perimeter
         const polygon = turf.polygon([coords]);
         const areaSqm = turf.area(polygon);
         const areaAcres = areaSqm * 0.000247105;
@@ -451,14 +450,17 @@
         const perimeterMeters = turf.length(turf.lineString(coords), { units: 'meters' });
         const perimeterKm = perimeterMeters / 1000;
 
+        // Update display
         areaSqmDisplay.innerText = areaSqm.toLocaleString(undefined, {maximumFractionDigits: 2});
         areaAcresDisplay.innerText = areaAcres.toFixed(4);
         areaHectaresDisplay.innerText = areaHectares.toFixed(4);
         perimeterDisplay.innerText = perimeterMeters.toFixed(0);
         perimeterKmDisplay.innerText = perimeterKm.toFixed(3);
+
+        console.log(`Area calculated: ${areaSqm.toFixed(2)} m²`);
       } catch (error) {
         console.error('Error calculating area:', error);
-        alert('Error calculating area. Please try again with more points.');
+        alert('Error calculating area. Please try again.');
       }
     }
 
@@ -468,39 +470,42 @@
         return;
       }
 
+      console.log('Starting GPS tracking...');
+
+      // Reset everything
       isTracking = true;
       startTime = Date.now();
       totalDistance = 0;
-      accuracyHistory = [];
-      distanceHistory = [];
-      smartMinDistance = 5;
-      smartAccuracyThreshold = 10;
       lastAddedPoint = null;
+      firstLocation = true;
       
+      // Update button states
       startBtn.disabled = true;
       stopBtn.disabled = false;
       closeBtn.disabled = true;
 
+      // Start GPS tracking
       watchId = navigator.geolocation.watchPosition(
         position => {
           const { latitude, longitude, accuracy } = position.coords;
           const latlng = L.latLng(latitude, longitude);
           
-          updateCurrentLocation(latlng, accuracy);
-          addPoint(latlng, accuracy);
+          console.log(`GPS position: ${latitude}, ${longitude}, accuracy: ${accuracy}m`);
           
-          if (pathPoints.length === 1) {
-            map.setView(latlng, 18);
-          }
+          // Always update current location indicator
+          updateCurrentLocation(latlng, accuracy);
+          
+          // Try to add point
+          addPoint(latlng, accuracy);
         },
         error => {
-          alert(`❌ GPS Error: ${error.message}`);
           console.error('GPS Error:', error);
+          alert(`❌ GPS Error: ${error.message}\nPlease check your location permissions.`);
         },
         {
           enableHighAccuracy: true,
-          maximumAge: 1000,
-          timeout: 10000
+          maximumAge: 2000,
+          timeout: 15000
         }
       );
 
@@ -508,31 +513,36 @@
     }
 
     function stopTrackingAndCalculate() {
+      console.log('Stopping tracking and calculating...');
+      
+      // Stop GPS tracking
       if (watchId !== null) {
         navigator.geolocation.clearWatch(watchId);
         watchId = null;
       }
       
+      // Remove current location marker
       if (currentLocationMarker) {
         map.removeLayer(currentLocationMarker);
         currentLocationMarker = null;
       }
 
       isTracking = false;
+      
+      // Update button states
       startBtn.disabled = false;
       stopBtn.disabled = true;
+      closeBtn.disabled = true;
 
       if (pathPoints.length < 3) {
-        alert('❌ Need at least 3 points to calculate area. Keep walking!');
-        startBtn.disabled = false;
-        stopBtn.disabled = true;
+        alert('❌ Need at least 3 points to calculate area. You have ' + pathPoints.length + ' points.');
         return;
       }
 
       drawFinalPolygon();
       updateStatus();
-      closeBtn.disabled = true;
       
+      // Show results
       setTimeout(() => {
         const areaText = areaSqmDisplay.innerText;
         const acresText = areaAcresDisplay.innerText;
@@ -542,31 +552,36 @@
     }
 
     function closeShape() {
+      console.log('Closing shape...');
+      
       if (pathPoints.length < 3) {
-        alert('❌ Need at least 3 points to close the shape.');
+        alert('❌ Need at least 3 points to close the shape. You have ' + pathPoints.length + ' points.');
         return;
       }
 
-      // Stop tracking first
+      // Stop GPS tracking
       if (watchId !== null) {
         navigator.geolocation.clearWatch(watchId);
         watchId = null;
       }
       
+      // Remove current location marker
       if (currentLocationMarker) {
         map.removeLayer(currentLocationMarker);
         currentLocationMarker = null;
       }
 
       isTracking = false;
+      
+      // Update button states
       startBtn.disabled = false;
       stopBtn.disabled = true;
       closeBtn.disabled = true;
 
-      // Force close the shape and calculate
       drawFinalPolygon();
       updateStatus();
 
+      // Show results
       setTimeout(() => {
         const areaText = areaSqmDisplay.innerText;
         const acresText = areaAcresDisplay.innerText;
@@ -576,33 +591,40 @@
     }
 
     function clearAll() {
+      console.log('Clearing all...');
+      
+      // Stop GPS tracking
       if (watchId !== null) {
         navigator.geolocation.clearWatch(watchId);
         watchId = null;
       }
       
+      // Reset variables
       isTracking = false;
       pathPoints = [];
       totalDistance = 0;
       startTime = null;
       lastAddedPoint = null;
-      accuracyHistory = [];
-      distanceHistory = [];
+      firstLocation = true;
 
+      // Remove all layers
       [polylineLayer, polygonLayer, currentLocationMarker].forEach(layer => {
         if (layer) map.removeLayer(layer);
       });
       polylineLayer = polygonLayer = currentLocationMarker = null;
 
+      // Remove all point markers
       pointMarkers.forEach(marker => map.removeLayer(marker));
       pointMarkers = [];
 
+      // Reset display
       areaSqmDisplay.innerText = "0";
       areaAcresDisplay.innerText = "0";
       areaHectaresDisplay.innerText = "0";
       perimeterDisplay.innerText = "0";
       perimeterKmDisplay.innerText = "0";
       
+      // Reset buttons
       startBtn.disabled = false;
       stopBtn.disabled = true;
       closeBtn.disabled = true;
@@ -618,6 +640,7 @@
 
     // Initialize
     updateStatus();
+    console.log('Land Area Calculator initialized');
   </script>
 
 </body>
