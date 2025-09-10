@@ -6,12 +6,15 @@
   <title>Land Area Calculator (GPS)</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
   <style>
+    * {
+      box-sizing: border-box;
+    }
     body {
       margin: 0;
       font-family: Arial, sans-serif;
     }
     #map {
-      height: 85vh;
+      height: 80vh;
       width: 100%;
     }
     #controls {
@@ -20,13 +23,27 @@
       text-align: center;
     }
     #controls button {
-      padding: 10px 20px;
+      padding: 10px 16px;
       margin: 5px;
       font-size: 16px;
+      border: none;
+      background: #007bff;
+      color: white;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+    #controls button:disabled {
+      background: #aaa;
+      cursor: not-allowed;
     }
     #info {
       padding: 10px;
       text-align: center;
+      font-size: 16px;
+      background: #fafafa;
+    }
+    #info span {
+      font-weight: bold;
     }
   </style>
 </head>
@@ -41,12 +58,16 @@
   <div id="map"></div>
 
   <div id="info">
-    <strong>Area:</strong> <span id="area">0</span> m² |
-    <strong>Perimeter:</strong> <span id="perimeter">0</span> m
+    📏 <strong>Area:</strong>
+    <span id="areaSqm">0</span> m² /
+    <span id="areaAcres">0</span> acres |
+    🔁 <strong>Perimeter:</strong> <span id="perimeter">0</span> m
   </div>
 
+  <!-- Leaflet and Turf.js -->
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
   <script src="https://unpkg.com/@turf/turf/turf.min.js"></script>
+
   <script>
     const map = L.map('map').setView([20, 77], 5);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -62,28 +83,23 @@
     const startBtn = document.getElementById('startBtn');
     const stopBtn = document.getElementById('stopBtn');
     const clearBtn = document.getElementById('clearBtn');
-    const areaDisplay = document.getElementById('area');
+    const areaSqmDisplay = document.getElementById('areaSqm');
+    const areaAcresDisplay = document.getElementById('areaAcres');
     const perimeterDisplay = document.getElementById('perimeter');
 
     function addPoint(latlng) {
-      // If already closed, stop adding
       if (!isTracking) return;
-
-      // Add to path
       pathPoints.push(latlng);
-      L.marker(latlng).addTo(map);
+      L.circleMarker(latlng, { radius: 4, color: 'red' }).addTo(map);
 
-      // Check if near starting point to auto-close
       if (pathPoints.length >= 3) {
         const distanceToStart = map.distance(latlng, pathPoints[0]);
         if (distanceToStart <= CLOSE_DISTANCE) {
-          console.log("Closed polygon");
           stopTracking();
           drawPolygon();
           return;
         }
       }
-
       drawPolygon();
     }
 
@@ -92,20 +108,22 @@
         map.removeLayer(polygonLayer);
       }
       if (pathPoints.length >= 3) {
-        polygonLayer = L.polygon(pathPoints, { color: 'blue' }).addTo(map);
+        polygonLayer = L.polygon(pathPoints, { color: 'green' }).addTo(map);
         calculateArea();
       }
     }
 
     function calculateArea() {
       const coords = pathPoints.map(p => [p.lng, p.lat]);
-      coords.push([pathPoints[0].lng, pathPoints[0].lat]); // close loop
+      coords.push([pathPoints[0].lng, pathPoints[0].lat]); // Close the polygon
 
       const polygon = turf.polygon([coords]);
-      const area = turf.area(polygon); // in square meters
+      const areaSqm = turf.area(polygon);
+      const areaAcres = areaSqm * 0.000247105; // convert sq meters to acres
       const perimeter = turf.length(turf.lineString(coords), { units: 'meters' });
 
-      areaDisplay.innerText = area.toFixed(2);
+      areaSqmDisplay.innerText = areaSqm.toFixed(2);
+      areaAcresDisplay.innerText = areaAcres.toFixed(4);
       perimeterDisplay.innerText = perimeter.toFixed(2);
     }
 
@@ -119,18 +137,22 @@
       startBtn.disabled = true;
       stopBtn.disabled = false;
 
-      watchId = navigator.geolocation.watchPosition(position => {
-        const { latitude, longitude } = position.coords;
-        const latlng = L.latLng(latitude, longitude);
-        addPoint(latlng);
-        map.setView(latlng, 18);
-      }, error => {
-        alert("Error getting location: " + error.message);
-      }, {
-        enableHighAccuracy: true,
-        maximumAge: 1000,
-        timeout: 10000
-      });
+      watchId = navigator.geolocation.watchPosition(
+        position => {
+          const { latitude, longitude } = position.coords;
+          const latlng = L.latLng(latitude, longitude);
+          addPoint(latlng);
+          map.setView(latlng, 18);
+        },
+        error => {
+          alert("Error getting location: " + error.message);
+        },
+        {
+          enableHighAccuracy: true,
+          maximumAge: 1000,
+          timeout: 10000
+        }
+      );
     }
 
     function stopTracking() {
@@ -152,12 +174,13 @@
       }
 
       map.eachLayer(layer => {
-        if (layer instanceof L.Marker) {
+        if (layer instanceof L.CircleMarker) {
           map.removeLayer(layer);
         }
       });
 
-      areaDisplay.innerText = "0";
+      areaSqmDisplay.innerText = "0";
+      areaAcresDisplay.innerText = "0";
       perimeterDisplay.innerText = "0";
     }
 
