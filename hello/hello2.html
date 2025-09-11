@@ -19,7 +19,7 @@
 </head>
 <body>
     <h1 class="text-2xl font-bold text-gray-800">Easy Area Calculator</h1>
-    <p class="text-gray-600 mb-4">Search or get your current location, click points on the map to measure an area (Manual mode), or walk outdoors with GPS mode. Use at least 3 points.</p>
+    <p class="text-gray-600 mb-4">Toggle between standard and satellite view, click points to measure an area (Manual mode), or walk outdoors with GPS mode. Use at least 3 points.</p>
     <div class="controls">
         <input type="text" id="searchInput" placeholder="Search location (e.g., New York)" />
         <button id="currentLocationButton" class="bg-green-500 text-white px-4 py-2 rounded-md hover:bg-green-600 transition">Get Current Location</button>
@@ -56,11 +56,25 @@
 
         // Initialize the map
         const map = L.map('map').setView([0, 0], 2);
-        L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+
+        // Define base layers
+        const standardLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
             attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> & <a href="https://carto.com/attributions">CARTO</a>',
             subdomains: 'abcd',
             maxZoom: 20
         }).addTo(map);
+
+        const satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+            attribution: '&copy; <a href="https://www.esri.com/">Esri</a>, USGS, NOAA',
+            maxZoom: 20
+        });
+
+        // Add layer control
+        const baseLayers = {
+            "Standard View": standardLayer,
+            "Satellite View": satelliteLayer
+        };
+        L.control.layers(baseLayers).addTo(map);
 
         let watchId = null;
         let coordinates = [];
@@ -91,6 +105,42 @@
             return R * c;
         }
 
+        // Function to get current location
+        function getCurrentLocation() {
+            if (!navigator.geolocation) {
+                resultDiv.innerHTML = 'Location not supported by your device. Search a location instead.';
+                console.error('Geolocation not supported');
+                return;
+            }
+            spinner.style.display = 'block';
+            resultDiv.innerHTML = 'Getting your location...';
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    const lat = position.coords.latitude;
+                    const lon = position.coords.longitude;
+                    const accuracy = position.coords.accuracy;
+                    console.log('Current location:', { lat, lon, accuracy });
+                    map.setView([lat, lon], 15);
+                    resultDiv.innerHTML = `Found your location (Accuracy: ${accuracy.toFixed(1)}m). Click Start to add points.`;
+                    spinner.style.display = 'none';
+                },
+                (error) => {
+                    console.error('Current location error:', error.message, error.code);
+                    let errorMessage = 'Unable to get location. Search a location or try again outdoors.';
+                    if (error.code === error.PERMISSION_DENIED) {
+                        errorMessage = 'Location permission denied. Allow permissions or search a location.';
+                    } else if (error.code === error.POSITION_UNAVAILABLE) {
+                        errorMessage = 'No GPS signal. Try outdoors or search a location.';
+                    } else if (error.code === error.TIMEOUT) {
+                        errorMessage = 'Location request timed out. Try again or search a location.';
+                    }
+                    resultDiv.innerHTML = errorMessage;
+                    spinner.style.display = 'none';
+                },
+                { enableHighAccuracy: true, timeout: 10000, maximumAge: 15000 }
+            );
+        }
+
         // Search location using Nominatim API
         searchInput.addEventListener('keypress', (e) => {
             if (e.key === 'Enter' && searchInput.value.trim()) {
@@ -118,35 +168,13 @@
             }
         });
 
-        // Get current location in Manual mode
+        // Get current location button
         currentLocationButton.addEventListener('click', () => {
             if (isGpsMode) {
                 resultDiv.innerHTML = 'Switch to Manual mode to use Get Current Location.';
                 return;
             }
-            if (!navigator.geolocation) {
-                resultDiv.innerHTML = 'Location not supported. Search a location instead.';
-                return;
-            }
-            spinner.style.display = 'block';
-            resultDiv.innerHTML = 'Getting your location...';
-            navigator.geolocation.getCurrentPosition(
-                (position) => {
-                    const lat = position.coords.latitude;
-                    const lon = position.coords.longitude;
-                    const accuracy = position.coords.accuracy;
-                    console.log('Current location:', { lat, lon, accuracy });
-                    map.setView([lat, lon], 15);
-                    resultDiv.innerHTML = `Found your location (Accuracy: ${accuracy.toFixed(1)}m). Click Start to add points.`;
-                    spinner.style.display = 'none';
-                },
-                (error) => {
-                    console.error('Current location error:', error);
-                    resultDiv.innerHTML = 'Unable to get location. Search a location or try again outdoors.';
-                    spinner.style.display = 'none';
-                },
-                { enableHighAccuracy: true, timeout: 5000, maximumAge: 5000 }
-            );
+            getCurrentLocation();
         });
 
         // Handle manual point addition
@@ -190,7 +218,7 @@
                     watchId = null;
                 }
                 map.on('click', onMapClick);
-                resultDiv.innerHTML = 'Manual Mode: Search or get your location, then click Start to add points.';
+                resultDiv.innerHTML = 'Manual Mode: Click Start to add points.';
                 startButton.disabled = false;
                 stopButton.disabled = true;
                 spinner.style.display = 'none';
@@ -212,6 +240,7 @@
             if (isGpsMode) {
                 if (!navigator.geolocation) {
                     resultDiv.innerHTML = 'GPS not supported. Use Manual mode to click points.';
+                    console.error('Geolocation not supported');
                     stopTracking();
                     return;
                 }
@@ -271,18 +300,26 @@
                             }, 15000);
                         },
                         (error) => {
-                            console.error('Geolocation error:', error);
+                            console.error('Geolocation error:', error.message, error.code);
                             if (retryCount < maxRetries) {
                                 retryCount++;
                                 console.log(`Retrying watchPosition (${retryCount}/${maxRetries})...`);
                                 setTimeout(tryWatchPosition, 2000);
                             } else {
-                                resultDiv.innerHTML = `Unable to track location: ${error.message}. Move outdoors or use Manual mode.`;
+                                let errorMessage = 'Unable to track location. Move outdoors or use Manual mode.';
+                                if (error.code === error.PERMISSION_DENIED) {
+                                    errorMessage = 'Location permission denied. Allow permissions or use Manual mode.';
+                                } else if (error.code === error.POSITION_UNAVAILABLE) {
+                                    errorMessage = 'No GPS signal. Move outdoors or use Manual mode.';
+                                } else if (error.code === error.TIMEOUT) {
+                                    errorMessage = 'Location request timed out. Try again outdoors or use Manual mode.';
+                                }
+                                resultDiv.innerHTML = errorMessage;
                                 spinner.style.display = 'none';
                                 stopTracking();
                             }
                         },
-                        { enableHighAccuracy: true, timeout: 5000, maximumAge: 5000 }
+                        { enableHighAccuracy: true, timeout: 10000, maximumAge: 15000 }
                     );
                 }
 
@@ -304,12 +341,20 @@
                         tryWatchPosition();
                     },
                     (error) => {
-                        console.error('Initial geolocation error:', error);
-                        resultDiv.innerHTML = `Unable to get location: ${error.message}. Move outdoors or use Manual mode.`;
+                        console.error('Initial geolocation error:', error.message, error.code);
+                        let errorMessage = 'Unable to get location. Move outdoors or use Manual mode.';
+                        if (error.code === error.PERMISSION_DENIED) {
+                            errorMessage = 'Location permission denied. Allow permissions or use Manual mode.';
+                        } else if (error.code === error.POSITION_UNAVAILABLE) {
+                            errorMessage = 'No GPS signal. Move outdoors or use Manual mode.';
+                        } else if (error.code === error.TIMEOUT) {
+                            errorMessage = 'Location request timed out. Try again outdoors or use Manual mode.';
+                        }
+                        resultDiv.innerHTML = errorMessage;
                         spinner.style.display = 'none';
                         stopTracking();
                     },
-                    { enableHighAccuracy: true, timeout: 5000, maximumAge: 5000 }
+                    { enableHighAccuracy: true, timeout: 10000, maximumAge: 15000 }
                 );
             } else {
                 resultDiv.innerHTML = `<span class="status-dot"></span>Manual Mode: Click the map to add points.`;
@@ -376,8 +421,8 @@
         startButton.addEventListener('click', startTracking);
         stopButton.addEventListener('click', stopTracking);
 
-        // Initialize in Manual mode
-        resultDiv.innerHTML = 'Manual Mode: Search or get your location, then click Start to add points.';
+        // Initialize in Manual mode and try to get current location
+        getCurrentLocation();
         map.on('click', onMapClick);
 
         // Invalidate map size on load
