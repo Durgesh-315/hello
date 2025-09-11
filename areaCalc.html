@@ -2,23 +2,23 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Accurate Walking Tracker</title>
+  <title>Walking Tracker - Minimal</title>
   <style>
-    body { font-family: Arial, sans-serif; margin: 0; }
+    body { font-family: Arial; text-align: center; margin: 0; }
     #map { height: 75vh; width: 100%; }
     button { padding: 10px 20px; margin: 10px; font-size: 16px; }
-    #stats { text-align: center; font-size: 18px; margin-top: 10px; }
+    #stats { font-size: 18px; margin-top: 10px; }
   </style>
-  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+  <link
+    rel="stylesheet"
+    href="https://unpkg.com/leaflet/dist/leaflet.css"
+  />
 </head>
 <body>
-
+  <h1> Tracker</h1>
   <div id="map"></div>
-  <div style="text-align: center;">
-    <button onclick="startTracking()">Start</button>
-    <button onclick="stopTracking()">Stop</button>
-  </div>
-
+  <button id="startBtn">Start</button>
+  <button id="stopBtn">Stop</button>
   <div id="stats">
     <p><strong>Distance:</strong> <span id="distance">0</span> meters</p>
     <p><strong>Steps:</strong> <span id="steps">0</span></p>
@@ -31,12 +31,12 @@
     let totalDistance = 0;
     let polyline;
 
+    const MIN_DISTANCE = 5; // meters
     const STEP_LENGTH = 0.762;
-    const MIN_DISTANCE = 5;
 
-    // 🌍 Initialize map with default view
+    // Initialize map at fixed coords first
     function initMap(lat = 20.5937, lng = 78.9629) {
-      map = L.map('map').setView([lat, lng], 18); // zoom level 18 for walking
+      map = L.map('map').setView([lat, lng], 18);
       L.tileLayer('https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png', {
         attribution: '© OpenStreetMap contributors'
       }).addTo(map);
@@ -44,85 +44,86 @@
       polyline = L.polyline([], { color: 'blue' }).addTo(map);
     }
 
-    // 📍 Start tracking
     function startTracking() {
       if (!navigator.geolocation) {
-        alert("Geolocation is not supported");
+        alert('Geolocation not supported');
         return;
       }
 
       totalDistance = 0;
       path = [];
-      document.getElementById("distance").innerText = "0";
-      document.getElementById("steps").innerText = "0";
+      document.getElementById('distance').textContent = '0';
+      document.getElementById('steps').textContent = '0';
 
-      navigator.geolocation.getCurrentPosition(position => {
-        const { latitude, longitude } = position.coords;
+      navigator.geolocation.getCurrentPosition(
+        position => {
+          const { latitude, longitude } = position.coords;
 
-        if (!map) {
-          initMap(latitude, longitude);
-        } else {
-          map.setView([latitude, longitude], 18);
-          marker.setLatLng([latitude, longitude]);
-        }
-
-        // Start watching live movement
-        watchId = navigator.geolocation.watchPosition(pos => {
-          const { latitude, longitude, accuracy } = pos.coords;
-          if (accuracy > 20) return;
-
-          const latlng = L.latLng(latitude, longitude);
-          marker.setLatLng(latlng);
-          map.panTo(latlng);
-
-          if (path.length > 0) {
-            const last = path[path.length - 1];
-            const distance = latlng.distanceTo(last);
-            if (distance >= MIN_DISTANCE) {
-              totalDistance += distance;
-              path.push(latlng);
-              polyline.addLatLng(latlng);
-
-              document.getElementById("distance").innerText = totalDistance.toFixed(2);
-              document.getElementById("steps").innerText = Math.floor(totalDistance / STEP_LENGTH);
-            }
+          if (!map) {
+            initMap(latitude, longitude);
           } else {
-            path.push(latlng);
+            map.setView([latitude, longitude], 18);
+            marker.setLatLng([latitude, longitude]);
           }
-        }, err => {
-          alert("Error: " + err.message);
-        }, {
-          enableHighAccuracy: true,
-          maximumAge: 500,
-          timeout: 10000
-        });
 
-      }, err => {
-        alert("Error getting initial location: " + err.message);
-      });
+          watchId = navigator.geolocation.watchPosition(
+            pos => {
+              const { latitude, longitude, accuracy } = pos.coords;
+              if (accuracy > 20) return;
+
+              const latlng = L.latLng(latitude, longitude);
+              marker.setLatLng(latlng);
+              map.panTo(latlng);
+
+              if (path.length > 0) {
+                const last = path[path.length - 1];
+                const dist = latlng.distanceTo(last);
+                if (dist >= MIN_DISTANCE) {
+                  totalDistance += dist;
+                  path.push(latlng);
+                  polyline.addLatLng(latlng);
+
+                  document.getElementById('distance').textContent = totalDistance.toFixed(2);
+                  document.getElementById('steps').textContent = Math.floor(totalDistance / STEP_LENGTH);
+                }
+              } else {
+                path.push(latlng);
+              }
+            },
+            err => {
+              alert('Error: ' + err.message);
+            },
+            {
+              enableHighAccuracy: true,
+              maximumAge: 500,
+              timeout: 10000,
+            }
+          );
+        },
+        err => {
+          alert('Error getting location: ' + err.message);
+        }
+      );
     }
 
-    // 🛑 Stop tracking
     function stopTracking() {
       if (watchId) {
         navigator.geolocation.clearWatch(watchId);
         watchId = null;
-        alert(`Stopped.\nTotal distance: ${totalDistance.toFixed(2)} meters\nEstimated steps: ${Math.floor(totalDistance / STEP_LENGTH)}`);
+        alert(
+          `Stopped.\nTotal distance: ${totalDistance.toFixed(
+            2
+          )} meters\nEstimated steps: ${Math.floor(totalDistance / STEP_LENGTH)}`
+        );
       }
     }
 
-    // 🌐 Try initializing map on page load
+    document.getElementById('startBtn').addEventListener('click', startTracking);
+    document.getElementById('stopBtn').addEventListener('click', stopTracking);
+
+    // Initialize map on page load to some default coords
     window.onload = () => {
-      if (navigator.geolocation) {
-        navigator.geolocation.getCurrentPosition(pos => {
-          const { latitude, longitude } = pos.coords;
-          initMap(latitude, longitude);
-        }, () => {
-          initMap(); // fallback default map
-        });
-      } else {
-        initMap(); // fallback
-      }
+      initMap();
     };
   </script>
 </body>
