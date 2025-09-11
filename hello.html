@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Land Area Calculator</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+    <style>
+        /* CSS to style the map container */
+        #map {
+            height: 600px;
+            width: 100%;
+        }
+        /* Basic body styling for better readability */
+        body {
+            font-family: sans-serif;
+            margin: 20px;
+        }
+        /* Style for the result display area */
+        #result {
+            margin-top: 20px;
+            padding: 10px;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Land Area Calculator</h1>
+    <p>Click on the map to define the corners of your land. **Double-click** on the last point to finish and calculate the area.</p>
+    <div id="map"></div>
+    <div id="result"></div>
+
+    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
+
+    <script>
+        // Initialize the map and set its initial view. The coordinates are for a location in India.
+        const map = L.map('map').setView([23.2599, 77.4126], 13);
+
+        // Add the base tile layer from OpenStreetMap.
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+        }).addTo(map);
+
+        let drawnItems = new L.FeatureGroup();
+        map.addLayer(drawnItems);
+
+        let coordinates = [];
+        let drawnPolyline = null;
+
+        // Event listener for a single click on the map.
+        map.on('click', function(e) {
+            // Add the clicked point's coordinates to our array.
+            coordinates.push([e.latlng.lng, e.latlng.lat]);
+
+            // Remove the temporary polyline if it exists.
+            if (drawnPolyline) {
+                map.removeLayer(drawnPolyline);
+            }
+
+            // Draw a new polyline to visualize the shape as the user draws.
+            drawnPolyline = L.polyline(coordinates.map(coord => [coord[1], coord[0]]), {color: 'blue'}).addTo(map);
+
+            // Add a marker for the latest point.
+            L.marker(e.latlng).addTo(drawnItems);
+        });
+
+        // Event listener for a double-click on the map to finalize the polygon.
+        map.on('dblclick', function(e) {
+            if (coordinates.length < 3) {
+                alert("Please select at least three points to form a polygon.");
+                return;
+            }
+
+            // Close the polygon by adding the first coordinate at the end.
+            let finalCoordinates = coordinates;
+            finalCoordinates.push(coordinates[0]);
+
+            // Create a GeoJSON polygon feature using Turf.js.
+            let polygon = turf.polygon([finalCoordinates]);
+
+            // Calculate the area of the polygon in square meters.
+            let area = turf.area(polygon);
+
+            // Convert the area to other common units.
+            const areaInSqMeters = area;
+            const areaInAcres = area * 0.000247105;
+            const areaInHectares = area * 0.0001;
+            const areaInSqFeet = area * 10.7639;
+
+            // Display the results in the designated div.
+            document.getElementById('result').innerHTML = `
+                <h3>Calculated Area:</h3>
+                <p><strong>Square Meters:</strong> ${areaInSqMeters.toFixed(2)}</p>
+                <p><strong>Acres:</strong> ${areaInAcres.toFixed(4)}</p>
+                <p><strong>Hectares:</strong> ${areaInHectares.toFixed(4)}</p>
+                <p><strong>Square Feet:</strong> ${areaInSqFeet.toFixed(2)}</p>
+            `;
+
+            // Remove the temporary polyline and draw the final, colored polygon.
+            map.removeLayer(drawnPolyline);
+            L.polygon(finalCoordinates.map(coord => [coord[1], coord[0]]), {color: 'red'}).addTo(drawnItems);
+
+            // Reset the coordinates and layers for the next measurement.
+            coordinates = [];
+            drawnPolyline = null;
+            drawnItems.clearLayers();
+        });
+    </script>
+
+</body>
+</html>
