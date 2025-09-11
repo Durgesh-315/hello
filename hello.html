@@ -10,13 +10,15 @@
         .controls { margin-bottom: 20px; display: flex; gap: 10px; }
         #result { margin-top: 20px; padding: 15px; border: 1px solid #e5e7eb; border-radius: 8px; background-color: #ffffff; }
         .spinner { display: none; border: 4px solid #f3f3f3; border-top: 4px solid #3b82f6; border-radius: 50%; width: 24px; height: 24px; animation: spin 1s linear infinite; margin: 10px auto; }
+        .status-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background-color: #10b981; animation: blink 1.5s infinite; margin-right: 8px; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
         @media (max-width: 640px) { #map { height: 400px; } .controls { flex-direction: column; } }
     </style>
 </head>
 <body>
     <h1 class="text-2xl font-bold text-gray-800">GPS Land Area Calculator</h1>
-    <p class="text-gray-600 mb-4">Press "Start Measurement," walk the perimeter of the land in an open area with clear sky, then press "Stop & Calculate."</p>
+    <p class="text-gray-600 mb-4">Press "Start Measurement," walk the perimeter in an open area with clear sky, then press "Stop & Calculate." Ensure location permissions are enabled.</p>
     <div class="controls">
         <button id="startButton" class="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600 transition">Start Measurement</button>
         <button id="stopButton" class="bg-gray-500 text-white px-4 py-2 rounded-md hover:bg-gray-600 transition" disabled>Stop & Calculate</button>
@@ -57,15 +59,22 @@
         let coordinates = [];
         let pathLine = null;
         let markers = [];
+        let lastPosition = null;
         const startButton = document.getElementById('startButton');
         const stopButton = document.getElementById('stopButton');
         const resultDiv = document.getElementById('result');
         const spinner = document.getElementById('spinner');
 
+        // Function to check if two points are too close (to avoid duplicates)
+        function arePointsTooClose(coord1, coord2) {
+            const threshold = 0.00001; // Roughly 1 meter in degrees
+            return Math.abs(coord1[0] - coord2[0]) < threshold && Math.abs(coord1[1] - coord2[1]) < threshold;
+        }
+
         // Function to start the location tracking
         function startTracking() {
             if (!navigator.geolocation) {
-                resultDiv.innerHTML = 'Geolocation is not supported by your browser.';
+                resultDiv.innerHTML = 'Geolocation is not supported by your browser. Please use a device with GPS.';
                 return;
             }
             startButton.disabled = true;
@@ -73,77 +82,104 @@
             resultDiv.innerHTML = 'Getting your location...';
             spinner.style.display = 'block';
             coordinates = [];
+            lastPosition = null;
 
             // Clear previous markers and lines
             if (pathLine) map.removeLayer(pathLine);
             markers.forEach(marker => map.removeLayer(marker));
             markers = [];
 
+            // Retry mechanism for watchPosition
+            let retryCount = 0;
+            const maxRetries = 3;
+
+            function tryWatchPosition() {
+                watchId = navigator.geolocation.watchPosition(
+                    (position) => {
+                        const lat = position.coords.latitude;
+                        const lon = position.coords.longitude;
+                        const accuracy = position.coords.accuracy;
+                        console.log('New position:', { lat, lon, accuracy, timestamp: position.timestamp });
+
+                        // Reset retry count on successful position
+                        retryCount = 0;
+
+                        // Filter out low-accuracy points
+                        if (accuracy > 50) {
+                            console.log('Skipping point due to low accuracy:', accuracy);
+                            resultDiv.innerHTML = `<span class="status-dot"></span>Waiting for better GPS signal (Accuracy: ${accuracy.toFixed(1)}m)...`;
+                            return;
+                        }
+
+                        const newPoint = [lon, lat];
+                        // Skip duplicate or near-identical points
+                        if (lastPosition && arePointsTooClose(newPoint, lastPosition)) {
+                            console.log('Skipping near-duplicate point:', newPoint);
+                            return;
+                        }
+
+                        coordinates.push(newPoint);
+                        lastPosition = newPoint;
+
+                        // Update the line on the map
+                        const latLngs = coordinates.map(coord => [coord[1], coord[0]]);
+                        if (pathLine) map.removeLayer(pathLine);
+                        pathLine = L.polyline(latLngs, { color: '#ef4444', weight: 5, opacity: 0.8 }).addTo(map);
+
+                        // Add a marker for the latest point
+                        const newMarker = L.marker([lat, lon], { icon: pointIcon }).addTo(map);
+                        markers.push(newMarker);
+
+                        // Center the map on the latest position
+                        map.setView([lat, lon]);
+
+                        // Update status
+                        resultDiv.innerHTML = `<span class="status-dot"></span>Tracking Active... Points: ${coordinates.length}, Accuracy: ${accuracy.toFixed(1)}m`;
+                    },
+                    (error) => {
+                        console.error('Geolocation error:', error);
+                        if (retryCount < maxRetries) {
+                            retryCount++;
+                            console.log(`Retrying watchPosition (${retryCount}/${maxRetries})...`);
+                            setTimeout(tryWatchPosition, 2000);
+                        } else {
+                            resultDiv.innerHTML = `Error: ${error.message}. Try moving to an open area or check location permissions.`;
+                            spinner.style.display = 'none';
+                            stopTracking();
+                        }
+                    },
+                    { enableHighAccuracy: true, timeout: 3000, maximumAge: 2000 }
+                );
+            }
+
             // Get the initial location
             navigator.geolocation.getCurrentPosition(
                 (initialPosition) => {
                     const initialLat = initialPosition.coords.latitude;
                     const initialLon = initialPosition.coords.longitude;
-                    console.log('Initial position:', initialLat, initialLon, 'Accuracy:', initialPosition.coords.accuracy);
+                    const accuracy = initialPosition.coords.accuracy;
+                    console.log('Initial position:', { lat: initialLat, lon: initialLon, accuracy });
 
                     // Set the map view to the initial location
                     map.setView([initialLat, initialLon], 19);
                     map.invalidateSize();
                     spinner.style.display = 'none';
-                    resultDiv.innerHTML = 'Tracking started... Walk the perimeter now. Points: 0';
+                    resultDiv.innerHTML = `<span class="status-dot"></span>Tracking started... Walk the perimeter now. Points: 0`;
 
                     // Add start marker
                     const startMarker = L.marker([initialLat, initialLon], { icon: startIcon }).addTo(map);
                     markers.push(startMarker);
 
-                    // Start watching the position
-                    watchId = navigator.geolocation.watchPosition(
-                        (position) => {
-                            const lat = position.coords.latitude;
-                            const lon = position.coords.longitude;
-                            const accuracy = position.coords.accuracy;
-                            console.log('New position:', lat, lon, 'Accuracy:', accuracy);
-
-                            // Filter out low-accuracy points
-                            if (accuracy > 20) {
-                                console.log('Skipping point due to low accuracy:', accuracy);
-                                return;
-                            }
-
-                            const newPoint = [lon, lat];
-                            coordinates.push(newPoint);
-
-                            // Update the line on the map
-                            const latLngs = coordinates.map(coord => [coord[1], coord[0]]);
-                            if (pathLine) map.removeLayer(pathLine);
-                            pathLine = L.polyline(latLngs, { color: '#ef4444', weight: 5, opacity: 0.8 }).addTo(map);
-
-                            // Add a marker for the latest point
-                            const newMarker = L.marker([lat, lon], { icon: pointIcon }).addTo(map);
-                            markers.push(newMarker);
-
-                            // Center the map on the latest position
-                            map.setView([lat, lon]);
-
-                            // Update point count
-                            resultDiv.innerHTML = `Tracking... Points: ${coordinates.length}`;
-                        },
-                        (error) => {
-                            console.error('Geolocation error:', error);
-                            resultDiv.innerHTML = `Error: ${error.message}. Ensure location services are enabled and you're in an open area.`;
-                            spinner.style.display = 'none';
-                            stopTracking();
-                        },
-                        { enableHighAccuracy: true, timeout: 5000, maximumAge: 1000 }
-                    );
+                    // Start watching position
+                    tryWatchPosition();
                 },
                 (error) => {
                     console.error('Initial geolocation error:', error);
-                    resultDiv.innerHTML = `Error: Could not get initial location: ${error.message}. Please allow location access and try again in an open area.`;
+                    resultDiv.innerHTML = `Error: Could not get initial location: ${error.message}. Please allow location access and try in an open area.`;
                     spinner.style.display = 'none';
                     stopTracking();
                 },
-                { enableHighAccuracy: true, timeout: 5000, maximumAge: 1000 }
+                { enableHighAccuracy: true, timeout: 5000, maximumAge: 2000 }
             );
         }
 
@@ -158,7 +194,7 @@
             spinner.style.display = 'none';
 
             if (coordinates.length < 3) {
-                resultDiv.innerHTML = "Not enough points to form a polygon. Please walk a larger area.";
+                resultDiv.innerHTML = `Not enough points to form a polygon (${coordinates.length} points). Walk a larger perimeter and ensure GPS signal is strong.`;
                 return;
             }
 
@@ -194,7 +230,7 @@
                 }).addTo(map);
             } catch (e) {
                 console.error('Turf.js error:', e);
-                resultDiv.innerHTML = 'Error calculating area: Invalid polygon. Please try again.';
+                resultDiv.innerHTML = `Error calculating area: Invalid polygon (possible duplicate or overlapping points). Try walking a larger, simpler perimeter.`;
             }
         }
 
