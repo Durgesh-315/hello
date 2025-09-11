@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Easy Area Calculator</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background-color: #f9fafb; }
+        #map { height: 600px; width: 100%; margin-top: 10px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .controls { margin-bottom: 20px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+        #result { margin-top: 20px; padding: 15px; border: 1px solid #e5e7eb; border-radius: 8px; background-color: #ffffff; }
+        .spinner { display: none; border: 4px solid #f3f3f3; border-top: 4px solid #3b82f6; border-radius: 50%; width: 24px; height: 24px; animation: spin 1s linear infinite; margin: 10px auto; }
+        .status-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background-color: #10b981; animation: blink 1.5s infinite; margin-right: 8px; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+        @media (max-width: 640px) { #map { height: 400px; } .controls { flex-direction: column; align-items: flex-start; } }
+    </style>
+</head>
+<body>
+    <h1 class="text-2xl font-bold text-gray-800">Easy Area Calculator</h1>
+    <p class="text-gray-600 mb-4">Click points on the map to measure an area (Manual mode) or walk outdoors with GPS mode. Click at least 3 points to calculate the area.</p>
+    <div class="controls">
+        <button id="startButton" class="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600 transition">Start Measurement</button>
+        <button id="stopButton" class="bg-gray-500 text-white px-4 py-2 rounded-md hover:bg-gray-600 transition" disabled>Stop & Calculate</button>
+        <label class="flex items-center text-gray-600">
+            <input type="checkbox" id="gpsMode" class="mr-2">
+            Use GPS mode (outdoors only)
+        </label>
+    </div>
+    <div id="map"></div>
+    <div id="spinner" class="spinner"></div>
+    <div id="result" class="text-gray-800"></div>
+    <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
+    <script>
+        // Custom marker icons
+        const startIcon = L.icon({
+            iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-green.png',
+            iconSize: [25, 41],
+            iconAnchor: [12, 41],
+            popupAnchor: [1, -34],
+            shadowUrl: 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-shadow.png',
+            shadowSize: [41, 41]
+        });
+        const pointIcon = L.icon({
+            iconUrl: 'https://raw.githubusercontent.com/pointhi/leaflet-color-markers/master/img/marker-icon-2x-blue.png',
+            iconSize: [15, 24],
+            iconAnchor: [7, 24],
+            popupAnchor: [1, -20],
+            shadowUrl: 'https://unpkg.com/leaflet@1.7.1/dist/images/marker-shadow.png',
+            shadowSize: [24, 24]
+        });
+
+        // Initialize the map with a default view
+        const map = L.map('map').setView([0, 0], 2);
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> & <a href="https://carto.com/attributions">CARTO</a>',
+            subdomains: 'abcd',
+            maxZoom: 20
+        }).addTo(map);
+
+        let watchId = null;
+        let coordinates = [];
+        let pathLine = null;
+        let markers = [];
+        let lastPosition = null;
+        let lastUpdateTime = 0;
+        let isGpsMode = false;
+        const startButton = document.getElementById('startButton');
+        const stopButton = document.getElementById('stopButton');
+        const gpsModeCheckbox = document.getElementById('gpsMode');
+        const resultDiv = document.getElementById('result');
+        const spinner = document.getElementById('spinner');
+
+        // Calculate distance between two points (in meters)
+        function getDistance(coord1, coord2) {
+            const toRad = (deg) => deg * Math.PI / 180;
+            const R = 6371000; // Earth's radius in meters
+            const lat1 = coord1[1], lon1 = coord1[0], lat2 = coord2[1], lon2 = coord2[0];
+            const dLat = toRad(lat2 - lat1);
+            const dLon = toRad(lon2 - lon1);
+            const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                      Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+                      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+            return R * c;
+        }
+
+        // Handle manual point addition
+        function onMapClick(e) {
+            if (!isGpsMode && startButton.disabled) {
+                const lat = e.latlng.lat;
+                const lon = e.latlng.lng;
+                const newPoint = [lon, lat];
+                console.log('Manual point added:', { lat, lon });
+
+                if (lastPosition && getDistance(newPoint, lastPosition) < 5) {
+                    console.log('Skipping manual point: too close to last position');
+                    return;
+                }
+
+                coordinates.push(newPoint);
+                lastPosition = newPoint;
+                lastUpdateTime = Date.now();
+
+                const latLngs = coordinates.map(coord => [coord[1], coord[0]]);
+                if (pathLine) map.removeLayer(pathLine);
+                pathLine = L.polyline(latLngs, { color: '#ef4444', weight: 5, opacity: 0.8 }).addTo(map);
+
+                const newMarker = L.marker([lat, lon], { icon: pointIcon }).addTo(map);
+                markers.push(newMarker);
+
+                resultDiv.innerHTML = `<span class="status-dot"></span>Clicked ${coordinates.length} point${coordinates.length === 1 ? '' : 's'}. Click at least 3 to calculate area.`;
+            }
+        }
+
+        // Toggle GPS mode
+        gpsModeCheckbox.addEventListener('change', () => {
+            isGpsMode = gpsModeCheckbox.checked;
+            if (isGpsMode) {
+                map.off('click', onMapClick);
+                resultDiv.innerHTML = 'GPS Mode: Click Start to track your walk outdoors. Allow location permissions.';
+            } else {
+                if (watchId) {
+                    navigator.geolocation.clearWatch(watchId);
+                    watchId = null;
+                }
+                map.on('click', onMapClick);
+                resultDiv.innerHTML = 'Manual Mode: Click Start, then click the map to add points.';
+                startButton.disabled = false;
+                stopButton.disabled = true;
+                spinner.style.display = 'none';
+            }
+        });
+
+        // Function to start measurement
+        function startTracking() {
+            coordinates = [];
+            lastPosition = null;
+            lastUpdateTime = Date.now();
+            if (pathLine) map.removeLayer(pathLine);
+            markers.forEach(marker => map.removeLayer(marker));
+            markers = [];
+
+            startButton.disabled = true;
+            stopButton.disabled = false;
+
+            if (isGpsMode) {
+                if (!navigator.geolocation) {
+                    resultDiv.innerHTML = 'GPS not supported on this device. Use Manual mode to click points.';
+                    stopTracking();
+                    return;
+                }
+
+                resultDiv.innerHTML = 'Getting your location...';
+                spinner.style.display = 'block';
+
+                let retryCount = 0;
+                const maxRetries = 5;
+
+                function tryWatchPosition() {
+                    watchId = navigator.geolocation.watchPosition(
+                        (position) => {
+                            const lat = position.coords.latitude;
+                            const lon = position.coords.longitude;
+                            const accuracy = position.coords.accuracy;
+                            const timestamp = position.timestamp;
+                            console.log('New position:', { lat, lon, accuracy, timestamp });
+
+                            retryCount = 0;
+
+                            if (accuracy > 100) {
+                                console.log('Skipping point due to low accuracy:', accuracy);
+                                resultDiv.innerHTML = `<span class="status-dot"></span>Waiting for better GPS signal (Accuracy: ${accuracy.toFixed(1)}m). Move outdoors.`;
+                                return;
+                            }
+
+                            const newPoint = [lon, lat];
+                            if (lastPosition && getDistance(newPoint, lastPosition) < 5) {
+                                console.log('Skipping point: too close to last position');
+                                return;
+                            }
+
+                            if (Date.now() - lastUpdateTime < 2000) {
+                                console.log('Skipping point: too soon since last update');
+                                return;
+                            }
+
+                            coordinates.push(newPoint);
+                            lastPosition = newPoint;
+                            lastUpdateTime = Date.now();
+
+                            const latLngs = coordinates.map(coord => [coord[1], coord[0]]);
+                            if (pathLine) map.removeLayer(pathLine);
+                            pathLine = L.polyline(latLngs, { color: '#ef4444', weight: 5, opacity: 0.8 }).addTo(map);
+
+                            const newMarker = L.marker([lat, lon], { icon: pointIcon }).addTo(map);
+                            markers.push(newMarker);
+
+                            resultDiv.innerHTML = `<span class="status-dot"></span>Tracking... ${coordinates.length} point${coordinates.length === 1 ? '' : 's'} collected, Accuracy: ${accuracy.toFixed(1)}m`;
+
+                            setTimeout(() => {
+                                if (Date.now() - lastUpdateTime > 15000) {
+                                    resultDiv.innerHTML = `<span class="status-dot"></span>Tracking stopped. Move to an open outdoor area or switch to Manual mode. ${coordinates.length} point${coordinates.length === 1 ? '' : 's'} collected.`;
+                                }
+                            }, 15000);
+                        },
+                        (error) => {
+                            console.error('Geolocation error:', error);
+                            if (retryCount < maxRetries) {
+                                retryCount++;
+                                console.log(`Retrying watchPosition (${retryCount}/${maxRetries})...`);
+                                setTimeout(tryWatchPosition, 2000);
+                            } else {
+                                resultDiv.innerHTML = `Unable to track location: ${error.message}. Move outdoors or use Manual mode.`;
+                                spinner.style.display = 'none';
+                                stopTracking();
+                            }
+                        },
+                        { enableHighAccuracy: true, timeout: 5000, maximumAge: 5000 }
+                    );
+                }
+
+                navigator.geolocation.getCurrentPosition(
+                    (initialPosition) => {
+                        const initialLat = initialPosition.coords.latitude;
+                        const initialLon = initialPosition.coords.longitude;
+                        const accuracy = initialPosition.coords.accuracy;
+                        console.log('Initial position:', { lat: initialLat, lon: initialLon, accuracy });
+
+                        map.setView([initialLat, initialLon], 19);
+                        map.invalidateSize();
+                        spinner.style.display = 'none';
+                        resultDiv.innerHTML = `<span class="status-dot"></span>Tracking started... Walk to mark your area.`;
+
+                        const startMarker = L.marker([initialLat, initialLon], { icon: startIcon }).addTo(map);
+                        markers.push(startMarker);
+
+                        tryWatchPosition();
+                    },
+                    (error) => {
+                        console.error('Initial geolocation error:', error);
+                        resultDiv.innerHTML = `Unable to get location: ${error.message}. Move outdoors or use Manual mode.`;
+                        spinner.style.display = 'none';
+                        stopTracking();
+                    },
+                    { enableHighAccuracy: true, timeout: 5000, maximumAge: 5000 }
+                );
+            } else {
+                resultDiv.innerHTML = `<span class="status-dot"></span>Manual Mode: Click the map to add points.`;
+                map.setView([0, 0], 2);
+                map.invalidateSize();
+                spinner.style.display = 'none';
+                map.on('click', onMapClick);
+            }
+        }
+
+        // Function to stop tracking and calculate the area
+        function stopTracking() {
+            if (watchId !== null) {
+                navigator.geolocation.clearWatch(watchId);
+                watchId = null;
+            }
+            map.off('click', onMapClick);
+            startButton.disabled = false;
+            stopButton.disabled = true;
+            spinner.style.display = 'none';
+
+            if (coordinates.length < 3) {
+                resultDiv.innerHTML = `Need more points! Click at least 3 points to calculate area. (${coordinates.length} point${coordinates.length === 1 ? '' : 's'} collected)`;
+                return;
+            }
+
+            const finalCoordinates = [...coordinates, coordinates[0]];
+            console.log('Final coordinates:', finalCoordinates);
+
+            try {
+                const polygon = turf.polygon([finalCoordinates]);
+                const simplified = turf.simplify(polygon, { tolerance: 0.00001, highQuality: true });
+                const areaInSqMeters = turf.area(simplified);
+                const areaInAcres = areaInSqMeters * 0.000247105;
+                const areaInHectares = areaInSqMeters * 0.0001;
+                const areaInSqFeet = areaInSqMeters * 10.7639;
+
+                resultDiv.innerHTML = `
+                    <h3 class="text-lg font-semibold">Area Calculated:</h3>
+                    <p><strong>Square Meters:</strong> ${areaInSqMeters.toFixed(2)}</p>
+                    <p><strong>Acres:</strong> ${areaInAcres.toFixed(4)}</p>
+                    <p><strong>Hectares:</strong> ${areaInHectares.toFixed(4)}</p>
+                    <p><strong>Square Feet:</strong> ${areaInSqFeet.toFixed(2)}</p>
+                `;
+
+                if (pathLine) map.removeLayer(pathLine);
+                const latLngs = finalCoordinates.map(coord => [coord[1], coord[0]]);
+                L.polygon(latLngs, {
+                    color: '#3b82f6',
+                    fillColor: '#3b82f6',
+                    fillOpacity: 0.3,
+                    weight: 4,
+                    dashArray: '5, 10'
+                }).addTo(map);
+
+                const bounds = L.latLngBounds(latLngs);
+                map.fitBounds(bounds, { padding: [50, 50], maxZoom: 19 });
+            } catch (e) {
+                console.error('Turf.js error:', e);
+                resultDiv.innerHTML = `Unable to calculate area: Make sure your points form a simple shape without crossing lines. (${coordinates.length} point${coordinates.length === 1 ? '' : 's'} collected)`;
+            }
+        }
+
+        // Add event listeners
+        startButton.addEventListener('click', startTracking);
+        stopButton.addEventListener('click', stopTracking);
+
+        // Initialize in Manual mode
+        resultDiv.innerHTML = 'Manual Mode: Click Start, then click the map to add points.';
+        map.on('click', onMapClick);
+
+        // Invalidate map size on load
+        setTimeout(() => map.invalidateSize(), 100);
+    </script>
+</body>
+</html>
