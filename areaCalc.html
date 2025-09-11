@@ -2,12 +2,12 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Accurate Walking Tracker</title>
+  <title>Walking Tracker with Steps</title>
   <style>
     body { font-family: Arial; text-align: center; margin: 0; }
-    #map { height: 80vh; width: 100%; }
+    #map { height: 75vh; width: 100%; }
     button { padding: 10px 20px; margin: 10px; font-size: 16px; }
-    #distance { font-size: 20px; margin-top: 10px; }
+    #stats { font-size: 18px; margin-top: 10px; }
   </style>
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
 </head>
@@ -17,7 +17,11 @@
   <div id="map"></div>
   <button onclick="startTracking()">Start</button>
   <button onclick="stopTracking()">Stop</button>
-  <div id="distance">Distance: 0 meters</div>
+
+  <div id="stats">
+    <p><strong>Distance:</strong> <span id="distance">0</span> meters</p>
+    <p><strong>Steps:</strong> <span id="steps">0</span></p>
+  </div>
 
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
   <script>
@@ -25,8 +29,8 @@
     let path = [];
     let totalDistance = 0;
     let polyline;
-
-    const MIN_DISTANCE = 5; // Minimum distance in meters to be considered actual movement
+    const MIN_DISTANCE = 5; // meters
+    const STEP_LENGTH = 0.762; // average step length in meters
 
     function initMap(lat, lng) {
       map = L.map('map').setView([lat, lng], 18);
@@ -38,6 +42,11 @@
     }
 
     function startTracking() {
+      totalDistance = 0;
+      path = [];
+      document.getElementById("distance").innerText = "0";
+      document.getElementById("steps").innerText = "0";
+
       if (!navigator.geolocation) {
         alert("Geolocation is not supported by your browser");
         return;
@@ -45,8 +54,7 @@
 
       watchId = navigator.geolocation.watchPosition(position => {
         const { latitude, longitude, accuracy } = position.coords;
-
-        if (accuracy > 20) return; // Ignore bad GPS data
+        if (accuracy > 20) return; // filter bad data
 
         const latlng = L.latLng(latitude, longitude);
 
@@ -59,21 +67,22 @@
 
         if (path.length > 0) {
           const last = path[path.length - 1];
-          const distance = latlng.distanceTo(last); // in meters
-
+          const distance = latlng.distanceTo(last);
           if (distance >= MIN_DISTANCE) {
             totalDistance += distance;
             path.push(latlng);
             polyline.addLatLng(latlng);
-            document.getElementById("distance").innerText =
-              `Distance: ${totalDistance.toFixed(2)} meters`;
+
+            // Update UI
+            document.getElementById("distance").innerText = totalDistance.toFixed(2);
+            const steps = Math.floor(totalDistance / STEP_LENGTH);
+            document.getElementById("steps").innerText = steps;
           }
         } else {
           path.push(latlng);
         }
-
       }, error => {
-        alert("Error getting location: " + error.message);
+        alert("Error: " + error.message);
       }, {
         enableHighAccuracy: true,
         maximumAge: 1000,
@@ -84,7 +93,8 @@
     function stopTracking() {
       if (watchId) {
         navigator.geolocation.clearWatch(watchId);
-        alert(`Tracking stopped. Total distance: ${totalDistance.toFixed(2)} meters`);
+        watchId = null;
+        alert(`Stopped. Total distance: ${totalDistance.toFixed(2)} meters\nEstimated steps: ${Math.floor(totalDistance / STEP_LENGTH)}`);
       }
     }
   </script>
