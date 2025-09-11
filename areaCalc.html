@@ -2,9 +2,9 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <title>Walking Tracker</title>
+  <title>Accurate Walking Tracker</title>
   <style>
-    body { font-family: Arial, sans-serif; text-align: center; margin: 0; }
+    body { font-family: Arial; text-align: center; margin: 0; }
     #map { height: 80vh; width: 100%; }
     button { padding: 10px 20px; margin: 10px; font-size: 16px; }
     #distance { font-size: 20px; margin-top: 10px; }
@@ -24,13 +24,17 @@
     let map, marker, watchId;
     let path = [];
     let totalDistance = 0;
+    let polyline;
+
+    const MIN_DISTANCE = 5; // Minimum distance in meters to be considered actual movement
 
     function initMap(lat, lng) {
-      map = L.map('map').setView([lat, lng], 16);
+      map = L.map('map').setView([lat, lng], 18);
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         attribution: '&copy; OpenStreetMap contributors'
       }).addTo(map);
       marker = L.marker([lat, lng]).addTo(map);
+      polyline = L.polyline([], { color: 'blue' }).addTo(map);
     }
 
     function startTracking() {
@@ -40,34 +44,48 @@
       }
 
       watchId = navigator.geolocation.watchPosition(position => {
-        const { latitude, longitude } = position.coords;
+        const { latitude, longitude, accuracy } = position.coords;
+
+        if (accuracy > 20) return; // Ignore bad GPS data
+
+        const latlng = L.latLng(latitude, longitude);
 
         if (!map) {
           initMap(latitude, longitude);
         }
 
-        const latlng = L.latLng(latitude, longitude);
         marker.setLatLng(latlng);
-        map.setView(latlng, 16);
+        map.panTo(latlng);
 
         if (path.length > 0) {
           const last = path[path.length - 1];
           const distance = latlng.distanceTo(last); // in meters
-          totalDistance += distance;
-          document.getElementById("distance").innerText = `Distance: ${totalDistance.toFixed(2)} meters`;
+
+          if (distance >= MIN_DISTANCE) {
+            totalDistance += distance;
+            path.push(latlng);
+            polyline.addLatLng(latlng);
+            document.getElementById("distance").innerText =
+              `Distance: ${totalDistance.toFixed(2)} meters`;
+          }
+        } else {
+          path.push(latlng);
         }
 
-        path.push(latlng);
       }, error => {
         alert("Error getting location: " + error.message);
       }, {
-        enableHighAccuracy: true
+        enableHighAccuracy: true,
+        maximumAge: 1000,
+        timeout: 10000
       });
     }
 
     function stopTracking() {
-      navigator.geolocation.clearWatch(watchId);
-      alert(`Tracking stopped. Total distance: ${totalDistance.toFixed(2)} meters`);
+      if (watchId) {
+        navigator.geolocation.clearWatch(watchId);
+        alert(`Tracking stopped. Total distance: ${totalDistance.toFixed(2)} meters`);
+      }
     }
   </script>
 
