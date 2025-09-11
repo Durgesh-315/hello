@@ -1,0 +1,75 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Walking Tracker</title>
+  <style>
+    body { font-family: Arial, sans-serif; text-align: center; margin: 0; }
+    #map { height: 80vh; width: 100%; }
+    button { padding: 10px 20px; margin: 10px; font-size: 16px; }
+    #distance { font-size: 20px; margin-top: 10px; }
+  </style>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
+</head>
+<body>
+
+  <h1>Walking Tracker</h1>
+  <div id="map"></div>
+  <button onclick="startTracking()">Start</button>
+  <button onclick="stopTracking()">Stop</button>
+  <div id="distance">Distance: 0 meters</div>
+
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <script>
+    let map, marker, watchId;
+    let path = [];
+    let totalDistance = 0;
+
+    function initMap(lat, lng) {
+      map = L.map('map').setView([lat, lng], 16);
+      L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        attribution: '&copy; OpenStreetMap contributors'
+      }).addTo(map);
+      marker = L.marker([lat, lng]).addTo(map);
+    }
+
+    function startTracking() {
+      if (!navigator.geolocation) {
+        alert("Geolocation is not supported by your browser");
+        return;
+      }
+
+      watchId = navigator.geolocation.watchPosition(position => {
+        const { latitude, longitude } = position.coords;
+
+        if (!map) {
+          initMap(latitude, longitude);
+        }
+
+        const latlng = L.latLng(latitude, longitude);
+        marker.setLatLng(latlng);
+        map.setView(latlng, 16);
+
+        if (path.length > 0) {
+          const last = path[path.length - 1];
+          const distance = latlng.distanceTo(last); // in meters
+          totalDistance += distance;
+          document.getElementById("distance").innerText = `Distance: ${totalDistance.toFixed(2)} meters`;
+        }
+
+        path.push(latlng);
+      }, error => {
+        alert("Error getting location: " + error.message);
+      }, {
+        enableHighAccuracy: true
+      });
+    }
+
+    function stopTracking() {
+      navigator.geolocation.clearWatch(watchId);
+      alert(`Tracking stopped. Total distance: ${totalDistance.toFixed(2)} meters`);
+    }
+  </script>
+
+</body>
+</html>
