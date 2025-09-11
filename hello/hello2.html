@@ -19,12 +19,13 @@
 </head>
 <body>
     <h1 class="text-2xl font-bold text-gray-800">Easy Area Calculator</h1>
-    <p class="text-gray-600 mb-4">Toggle between standard and satellite view, click points to measure an area (Manual mode), or walk outdoors with GPS mode. Use at least 3 points.</p>
+    <p class="text-gray-600 mb-4">Toggle between standard and satellite view, click points to measure an area (Manual mode), or walk outdoors with GPS mode. Use at least 3 points. Clear the map to start a new measurement.</p>
     <div class="controls">
         <input type="text" id="searchInput" placeholder="Search location (e.g., New York)" />
         <button id="currentLocationButton" class="bg-green-500 text-white px-4 py-2 rounded-md hover:bg-green-600 transition">Get Current Location</button>
         <button id="startButton" class="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600 transition">Start Measurement</button>
         <button id="stopButton" class="bg-gray-500 text-white px-4 py-2 rounded-md hover:bg-gray-600 transition" disabled>Stop & Calculate</button>
+        <button id="clearButton" class="bg-red-500 text-white px-4 py-2 rounded-md hover:bg-red-600 transition" disabled>Clear Map</button>
         <label class="flex items-center text-gray-600">
             <input type="checkbox" id="gpsMode" class="mr-2">
             Use GPS mode (outdoors only)
@@ -83,8 +84,10 @@
         let lastPosition = null;
         let lastUpdateTime = 0;
         let isGpsMode = false;
+        let polygonLayer = null;
         const startButton = document.getElementById('startButton');
         const stopButton = document.getElementById('stopButton');
+        const clearButton = document.getElementById('clearButton');
         const gpsModeCheckbox = document.getElementById('gpsMode');
         const searchInput = document.getElementById('searchInput');
         const currentLocationButton = document.getElementById('currentLocationButton');
@@ -105,15 +108,15 @@
             return R * c;
         }
 
-        // Function to get current location
-        function getCurrentLocation() {
+        // Function to get current location with retry
+        function getCurrentLocation(attempt = 1, maxAttempts = 3) {
             if (!navigator.geolocation) {
                 resultDiv.innerHTML = 'Location not supported by your device. Search a location instead.';
                 console.error('Geolocation not supported');
                 return;
             }
             spinner.style.display = 'block';
-            resultDiv.innerHTML = 'Getting your location...';
+            resultDiv.innerHTML = `Getting your location (Attempt ${attempt}/${maxAttempts})...`;
             navigator.geolocation.getCurrentPosition(
                 (position) => {
                     const lat = position.coords.latitude;
@@ -126,18 +129,23 @@
                 },
                 (error) => {
                     console.error('Current location error:', error.message, error.code);
-                    let errorMessage = 'Unable to get location. Search a location or try again outdoors.';
+                    if (attempt < maxAttempts) {
+                        console.log(`Retrying location fetch (${attempt + 1}/${maxAttempts})...`);
+                        setTimeout(() => getCurrentLocation(attempt + 1, maxAttempts), 2000);
+                        return;
+                    }
+                    let errorMessage = 'Unable to get location after retries. Search a location or try again outdoors.';
                     if (error.code === error.PERMISSION_DENIED) {
-                        errorMessage = 'Location permission denied. Allow permissions or search a location.';
+                        errorMessage = 'Location permission denied. Please allow location access in your browser settings or search a location.';
                     } else if (error.code === error.POSITION_UNAVAILABLE) {
-                        errorMessage = 'No GPS signal. Try outdoors or search a location.';
+                        errorMessage = 'No GPS signal detected. Try moving outdoors or search a location.';
                     } else if (error.code === error.TIMEOUT) {
-                        errorMessage = 'Location request timed out. Try again or search a location.';
+                        errorMessage = 'Location request timed out. Try again outdoors or search a location.';
                     }
                     resultDiv.innerHTML = errorMessage;
                     spinner.style.display = 'none';
                 },
-                { enableHighAccuracy: true, timeout: 10000, maximumAge: 15000 }
+                { enableHighAccuracy: true, timeout: 12000, maximumAge: 20000 }
             );
         }
 
@@ -221,21 +229,40 @@
                 resultDiv.innerHTML = 'Manual Mode: Click Start to add points.';
                 startButton.disabled = false;
                 stopButton.disabled = true;
+                clearButton.disabled = true;
                 spinner.style.display = 'none';
             }
         });
 
-        // Function to start measurement
-        function startTracking() {
+        // Function to clear the map
+        function clearMap() {
             coordinates = [];
             lastPosition = null;
-            lastUpdateTime = Date.now();
-            if (pathLine) map.removeLayer(pathLine);
+            lastUpdateTime = 0;
+            if (pathLine) {
+                map.removeLayer(pathLine);
+                pathLine = null;
+            }
+            if (polygonLayer) {
+                map.removeLayer(polygonLayer);
+                polygonLayer = null;
+            }
             markers.forEach(marker => map.removeLayer(marker));
             markers = [];
+            resultDiv.innerHTML = isGpsMode ? 'GPS Mode: Click Start to track your walk outdoors.' : 'Manual Mode: Click Start to add points.';
+            startButton.disabled = false;
+            stopButton.disabled = true;
+            clearButton.disabled = true;
+            map.on('click', isGpsMode ? null : onMapClick);
+            console.log('Map cleared');
+        }
 
+        // Function to start measurement
+        function startTracking() {
+            clearMap(); // Reset map before starting new measurement
             startButton.disabled = true;
             stopButton.disabled = false;
+            clearButton.disabled = true;
 
             if (isGpsMode) {
                 if (!navigator.geolocation) {
@@ -319,7 +346,7 @@
                                 stopTracking();
                             }
                         },
-                        { enableHighAccuracy: true, timeout: 10000, maximumAge: 15000 }
+                        { enableHighAccuracy: true, timeout: 12000, maximumAge: 20000 }
                     );
                 }
 
@@ -354,7 +381,7 @@
                         spinner.style.display = 'none';
                         stopTracking();
                     },
-                    { enableHighAccuracy: true, timeout: 10000, maximumAge: 15000 }
+                    { enableHighAccuracy: true, timeout: 12000, maximumAge: 20000 }
                 );
             } else {
                 resultDiv.innerHTML = `<span class="status-dot"></span>Manual Mode: Click the map to add points.`;
@@ -373,10 +400,12 @@
             map.off('click', onMapClick);
             startButton.disabled = false;
             stopButton.disabled = true;
+            clearButton.disabled = false;
             spinner.style.display = 'none';
 
             if (coordinates.length < 3) {
                 resultDiv.innerHTML = `Need more points! Click at least 3 points to calculate area. (${coordinates.length} point${coordinates.length === 1 ? '' : 's'} collected)`;
+                clearButton.disabled = false;
                 return;
             }
 
@@ -397,11 +426,14 @@
                     <p><strong>Acres:</strong> ${areaInAcres.toFixed(4)}</p>
                     <p><strong>Hectares:</strong> ${areaInHectares.toFixed(4)}</p>
                     <p><strong>Square Feet:</strong> ${areaInSqFeet.toFixed(2)}</p>
+                    <p>Click Clear Map to start a new measurement.</p>
                 `;
 
                 if (pathLine) map.removeLayer(pathLine);
+                pathLine = null;
                 const latLngs = finalCoordinates.map(coord => [coord[1], coord[0]]);
-                L.polygon(latLngs, {
+                if (polygonLayer) map.removeLayer(polygonLayer);
+                polygonLayer = L.polygon(latLngs, {
                     color: '#3b82f6',
                     fillColor: '#3b82f6',
                     fillOpacity: 0.3,
@@ -413,13 +445,15 @@
                 map.fitBounds(bounds, { padding: [50, 50], maxZoom: 19 });
             } catch (e) {
                 console.error('Turf.js error:', e);
-                resultDiv.innerHTML = `Unable to calculate area: Make sure your points form a simple shape without crossing lines. (${coordinates.length} point${coordinates.length === 1 ? '' : 's'} collected)`;
+                resultDiv.innerHTML = `Unable to calculate area: Make sure your points form a simple shape without crossing lines. (${coordinates.length} point${coordinates.length === 1 ? '' : 's'} collected). Click Clear Map to start over.`;
+                clearButton.disabled = false;
             }
         }
 
         // Add event listeners
         startButton.addEventListener('click', startTracking);
         stopButton.addEventListener('click', stopTracking);
+        clearButton.addEventListener('click', clearMap);
 
         // Initialize in Manual mode and try to get current location
         getCurrentLocation();
