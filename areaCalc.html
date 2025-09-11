@@ -3,18 +3,11 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Land Area Calculator (GPS)</title>
+  <title>Land Area Calculator (Manual + GPS)</title>
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
   <style>
-    * { box-sizing: border-box; }
-    body {
-      margin: 0;
-      font-family: Arial, sans-serif;
-    }
-    #map {
-      height: 75vh;
-      width: 100%;
-    }
+    body { margin: 0; font-family: Arial, sans-serif; }
+    #map { height: 75vh; width: 100%; }
     #controls, #info, #status {
       padding: 10px;
       text-align: center;
@@ -22,23 +15,25 @@
     #controls {
       background: #f4f4f4;
     }
-    #info {
-      background: #fafafa;
-      font-size: 16px;
-    }
-    #controls button {
-      padding: 10px 14px;
+    #controls select, #controls button {
+      padding: 10px;
       margin: 5px;
       font-size: 16px;
+      border-radius: 5px;
       border: none;
+    }
+    #controls button {
       background: #007bff;
       color: white;
-      border-radius: 5px;
       cursor: pointer;
     }
     #controls button:disabled {
       background: #aaa;
       cursor: not-allowed;
+    }
+    #info {
+      background: #fafafa;
+      font-size: 16px;
     }
     #status {
       font-weight: bold;
@@ -49,6 +44,10 @@
 <body>
 
   <div id="controls">
+    <select id="modeSelect">
+      <option value="gps">GPS (Walk)</option>
+      <option value="manual">Manual (Tap Map)</option>
+    </select>
     <button id="startBtn">Start</button>
     <button id="stopBtn" disabled>Stop</button>
     <button id="closeBtn" disabled>Close Polygon</button>
@@ -65,7 +64,7 @@
     🔘 <strong>Points:</strong> <span id="pointsCount">0</span>
   </div>
 
-  <div id="status">📍 Waiting for GPS...</div>
+  <div id="status">📍 Waiting...</div>
 
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
   <script src="https://unpkg.com/@turf/turf/turf.min.js"></script>
@@ -76,18 +75,12 @@
       maxZoom: 19
     }).addTo(map);
 
-    // State
-    let pathPoints = [];
-    let polygonLayer = null;
-    let watchId = null;
-    let isTracking = false;
-    let hasCentered = false;
-
-    // UI elements
+    // Elements
+    const modeSelect = document.getElementById('modeSelect');
     const startBtn = document.getElementById('startBtn');
     const stopBtn = document.getElementById('stopBtn');
-    const clearBtn = document.getElementById('clearBtn');
     const closeBtn = document.getElementById('closeBtn');
+    const clearBtn = document.getElementById('clearBtn');
     const exportBtn = document.getElementById('exportBtn');
     const areaSqmDisplay = document.getElementById('areaSqm');
     const areaAcresDisplay = document.getElementById('areaAcres');
@@ -95,52 +88,34 @@
     const pointsCountDisplay = document.getElementById('pointsCount');
     const statusDisplay = document.getElementById('status');
 
-    const MIN_DISTANCE = 5; // meters
+    let pathPoints = [];
+    let polygonLayer = null;
+    let watchId = null;
+    let isTracking = false;
+    let hasCentered = false;
+    let trackingMode = 'gps';
 
     function updateStatus(msg) {
       statusDisplay.innerText = msg;
     }
 
     function addPoint(latlng) {
-      if (!isTracking) return;
-
-      const last = pathPoints[pathPoints.length - 1];
-      if (last && map.distance(latlng, last) < MIN_DISTANCE) return;
-
       pathPoints.push(latlng);
       pointsCountDisplay.innerText = pathPoints.length;
-
       L.circleMarker(latlng, { radius: 4, color: 'red' }).addTo(map);
-
-      if (!hasCentered) {
-        map.setView(latlng, 18);
-        hasCentered = true;
-      }
 
       if (pathPoints.length >= 3) {
         closeBtn.disabled = false;
-        const distanceToStart = map.distance(latlng, pathPoints[0]);
-        if (distanceToStart <= 10) {
-          updateStatus("📍 Auto-closing polygon...");
-          stopTracking();
-          closePolygon();
-          return;
-        }
+        drawPolygon();
       }
-
-      drawPolygon(false);
     }
 
-    function drawPolygon(closed = false) {
+    function drawPolygon() {
       if (polygonLayer) map.removeLayer(polygonLayer);
       if (pathPoints.length < 3) return;
 
-      const points = [...pathPoints];
-      if (closed) points.push(points[0]);
-
-      polygonLayer = L.polygon(points, { color: closed ? 'blue' : 'green' }).addTo(map);
-
-      if (closed) calculateArea();
+      polygonLayer = L.polygon(pathPoints, { color: 'blue' }).addTo(map);
+      calculateArea();
     }
 
     function calculateArea() {
@@ -159,30 +134,42 @@
     }
 
     function startTracking() {
-      if (!navigator.geolocation) {
-        alert("Geolocation is not supported by your browser.");
-        return;
-      }
+      trackingMode = modeSelect.value;
+      clearMap();
+      updateStatus("📍 Tracking mode: " + trackingMode.toUpperCase());
 
-      updateStatus("📍 Tracking...");
-      isTracking = true;
       startBtn.disabled = true;
       stopBtn.disabled = false;
 
-      watchId = navigator.geolocation.watchPosition(
-        position => {
-          const { latitude, longitude } = position.coords;
-          addPoint(L.latLng(latitude, longitude));
-        },
-        error => {
-          updateStatus("⚠️ Error: " + error.message);
-        },
-        {
-          enableHighAccuracy: true,
-          maximumAge: 1000,
-          timeout: 10000
+      if (trackingMode === 'gps') {
+        isTracking = true;
+        if (!navigator.geolocation) {
+          alert("Geolocation not supported.");
+          return;
         }
-      );
+
+        watchId = navigator.geolocation.watchPosition(
+          pos => {
+            const latlng = L.latLng(pos.coords.latitude, pos.coords.longitude);
+            addPoint(latlng);
+            if (!hasCentered) {
+              map.setView(latlng, 18); // zoom immediately
+              hasCentered = true;
+            }
+          },
+          err => {
+            updateStatus("⚠️ GPS Error: " + err.message);
+          },
+          {
+            enableHighAccuracy: true,
+            timeout: 10000,
+            maximumAge: 1000
+          }
+        );
+      } else {
+        updateStatus("🖱 Tap on map to add points");
+        map.on('click', onMapClickManual);
+      }
     }
 
     function stopTracking() {
@@ -190,45 +177,44 @@
         navigator.geolocation.clearWatch(watchId);
         watchId = null;
       }
+      map.off('click', onMapClickManual);
       isTracking = false;
       startBtn.disabled = false;
       stopBtn.disabled = true;
       updateStatus("⏹️ Tracking stopped.");
     }
 
-    function closePolygon() {
-      drawPolygon(true);
-      closeBtn.disabled = true;
+    function onMapClickManual(e) {
+      if (trackingMode === 'manual') {
+        addPoint(e.latlng);
+      }
     }
 
     function clearMap() {
-      if (!confirm("Are you sure you want to clear the map?")) return;
-
-      stopTracking();
-      pathPoints = [];
-      hasCentered = false;
-
       if (polygonLayer) {
         map.removeLayer(polygonLayer);
         polygonLayer = null;
       }
+      pathPoints = [];
+      hasCentered = false;
 
       map.eachLayer(layer => {
-        if (layer instanceof L.CircleMarker) map.removeLayer(layer);
+        if (layer instanceof L.CircleMarker) {
+          map.removeLayer(layer);
+        }
       });
 
       areaSqmDisplay.innerText = "0";
       areaAcresDisplay.innerText = "0";
       perimeterDisplay.innerText = "0";
       pointsCountDisplay.innerText = "0";
-      exportBtn.disabled = true;
       closeBtn.disabled = true;
-      updateStatus("📍 Waiting for GPS...");
+      exportBtn.disabled = true;
     }
 
     function exportGeoJSON() {
       if (pathPoints.length < 3) {
-        alert("Not enough points to export.");
+        alert("Need at least 3 points.");
         return;
       }
 
@@ -246,21 +232,25 @@
         }
       };
 
-      const blob = new Blob([JSON.stringify(geojson, null, 2)], { type: "application/json" });
+      const blob = new Blob([JSON.stringify(geojson)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
+      const a = document.createElement("a");
       a.href = url;
-      a.download = 'polygon.geojson';
+      a.download = "land_polygon.geojson";
       a.click();
     }
 
-    // Event Listeners
     startBtn.addEventListener('click', startTracking);
     stopBtn.addEventListener('click', stopTracking);
-    clearBtn.addEventListener('click', clearMap);
+    clearBtn.addEventListener('click', () => {
+      stopTracking();
+      clearMap();
+      updateStatus("📍 Map cleared");
+    });
     closeBtn.addEventListener('click', () => {
       stopTracking();
-      closePolygon();
+      drawPolygon();
+      updateStatus("✅ Polygon closed and area calculated");
     });
     exportBtn.addEventListener('click', exportGeoJSON);
   </script>
