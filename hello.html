@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>GPS  Area Calculator</title>
+    <title>GPS Area Calculator</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
     <style>
         body { font-family: sans-serif; margin: 20px; }
@@ -12,24 +12,19 @@
     </style>
 </head>
 <body>
-
-    <h1>GPS Land Area Calculator</h1>
+    <h1>GPS  Area Calculator</h1>
     <p>Press "Start Measurement," walk the perimeter of the land, then press "Stop & Calculate."</p>
-
     <div class="controls">
         <button id="startButton">Start Measurement</button>
         <button id="stopButton" disabled>Stop & Calculate</button>
     </div>
-
     <div id="map"></div>
     <div id="result"></div>
-
     <script src="https://unpkg.com/leaflet@1.7.1/dist/leaflet.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
-
     <script>
-        // Initialize the map. It will fit the world initially, then zoom to the user's location.
-        const map = L.map('map').fitWorld();
+        // Initialize the map without setting a view initially
+        const map = L.map('map');
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
         }).addTo(map);
@@ -38,18 +33,21 @@
         let coordinates = [];
         let pathLine = null;
         let markers = [];
-
         const startButton = document.getElementById('startButton');
         const stopButton = document.getElementById('stopButton');
         const resultDiv = document.getElementById('result');
 
         // Function to start the location tracking
         function startTracking() {
+            if (!navigator.geolocation) {
+                resultDiv.innerHTML = 'Geolocation is not supported by your browser.';
+                return;
+            }
             startButton.disabled = true;
             stopButton.disabled = false;
             resultDiv.innerHTML = 'Getting your location...';
             coordinates = [];
-            
+
             // Clear previous markers and lines
             if (pathLine) map.removeLayer(pathLine);
             markers.forEach(marker => map.removeLayer(marker));
@@ -60,45 +58,48 @@
                 (initialPosition) => {
                     const initialLat = initialPosition.coords.latitude;
                     const initialLon = initialPosition.coords.longitude;
-                    
-                    // Set the map view to the initial location with a detailed zoom level (19 is for street level)
+                    console.log('Initial position:', initialLat, initialLon);
+
+                    // Set the map view to the initial location
                     map.setView([initialLat, initialLon], 19);
+                    map.invalidateSize(); // Ensure map renders correctly
                     resultDiv.innerHTML = 'Tracking started... Walk the perimeter now.';
-                    
-                    // Now, start watching the position for continuous updates
+
+                    // Start watching the position for continuous updates
                     watchId = navigator.geolocation.watchPosition(
                         (position) => {
                             const lat = position.coords.latitude;
                             const lon = position.coords.longitude;
                             const newPoint = [lon, lat];
-                            
+                            console.log('New position:', lat, lon);
+
                             // Add the new coordinate
                             coordinates.push(newPoint);
-
                             // Update the line on the map
                             const latLngs = coordinates.map(coord => [coord[1], coord[0]]);
                             if (pathLine) map.removeLayer(pathLine);
                             pathLine = L.polyline(latLngs, { color: 'red' }).addTo(map);
-
                             // Add a marker for the latest point
                             const newMarker = L.marker([lat, lon]).addTo(map);
                             markers.push(newMarker);
-                            
+
                             // Center the map on the latest position
                             map.setView([lat, lon]);
                         },
                         (error) => {
-                            resultDiv.innerHTML = `Error: ${error.message}`;
+                            console.error('Geolocation error:', error);
+                            resultDiv.innerHTML = `Error: ${error.message}. Please ensure location services are enabled.`;
                             stopTracking();
                         },
-                        { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
+                        { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
                     );
                 },
                 (error) => {
-                    resultDiv.innerHTML = `Error: Could not get initial location: ${error.message}`;
+                    console.error('Initial geolocation error:', error);
+                    resultDiv.innerHTML = `Error: Could not get initial location: ${error.message}. Please allow location access and try again.`;
                     stopTracking();
                 },
-                { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
+                { enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }
             );
         }
 
@@ -110,41 +111,49 @@
             }
             startButton.disabled = false;
             stopButton.disabled = true;
-            
+
             if (coordinates.length < 3) {
                 resultDiv.innerHTML = "Not enough points to form a polygon. Please walk a larger area.";
                 return;
             }
 
             // Close the polygon by adding the first coordinate at the end
-            const finalCoordinates = coordinates;
-            finalCoordinates.push(coordinates[0]);
+            const finalCoordinates = [...coordinates, coordinates[0]];
+            console.log('Final coordinates:', finalCoordinates);
 
-            // Create a GeoJSON polygon feature using Turf.js
-            const polygon = turf.polygon([finalCoordinates]);
+            // Validate and create a GeoJSON polygon
+            try {
+                const polygon = turf.polygon([finalCoordinates]);
+                // Calculate the area in square meters and convert to other units
+                const areaInSqMeters = turf.area(polygon);
+                const areaInAcres = areaInSqMeters * 0.000247105;
+                const areaInHectares = areaInSqMeters * 0.0001;
+                const areaInSqFeet = areaInSqMeters * 10.7639;
 
-            // Calculate the area in square meters and convert to other units
-            const areaInSqMeters = turf.area(polygon);
-            const areaInAcres = areaInSqMeters * 0.000247105;
-            const areaInHectares = areaInSqMeters * 0.0001;
-            const areaInSqFeet = areaInSqMeters * 10.7639;
+                // Display the results
+                resultDiv.innerHTML = `
+                    <h3>Calculated Area:</h3>
+                    <p><strong>Square Meters:</strong> ${areaInSqMeters.toFixed(2)}</p>
+                    <p><strong>Acres:</strong> ${areaInAcres.toFixed(4)}</p>
+                    <p><strong>Hectares:</strong> ${areaInHectares.toFixed(4)}</p>
+                    <p><strong>Square Feet:</strong> ${areaInSqFeet.toFixed(2)}</p>
+                `;
 
-            // Display the results
-            resultDiv.innerHTML = `
-                <h3>Calculated Area:</h3>
-                <p><strong>Square Meters:</strong> ${areaInSqMeters.toFixed(2)}</p>
-                <p><strong>Acres:</strong> ${areaInAcres.toFixed(4)}</p>
-                <p><strong>Hectares:</strong> ${areaInHectares.toFixed(4)}</p>
-                <p><strong>Square Feet:</strong> ${areaInSqFeet.toFixed(2)}</p>
-            `;
-            
-            // Draw the final closed polygon on the map
-            if (pathLine) map.removeLayer(pathLine);
-            L.polygon(finalCoordinates.map(coord => [coord[1], coord[0]]), {color: 'blue'}).addTo(map);
+                // Draw the final closed polygon on the map
+                if (pathLine) map.removeLayer(pathLine);
+                L.polygon(finalCoordinates.map(coord => [coord[1], coord[0]]), { color: 'blue' }).addTo(map);
+            } catch (e) {
+                console.error('Turf.js error:', e);
+                resultDiv.innerHTML = 'Error calculating area: Invalid polygon. Please try again.';
+            }
         }
 
+        // Add event listeners
         startButton.addEventListener('click', startTracking);
         stopButton.addEventListener('click', stopTracking);
+
+        // Invalidate map size on load to ensure proper rendering
+        setTimeout(() => map.invalidateSize(), 100);
     </script>
 </body>
 </html>
