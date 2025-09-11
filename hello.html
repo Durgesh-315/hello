@@ -28,7 +28,7 @@
     <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
 
     <script>
-        // Initialize the map, but do not set a fixed view. It will be set by the user's location.
+        // Initialize the map. It will fit the world initially, then zoom to the user's location.
         const map = L.map('map').fitWorld();
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
@@ -62,7 +62,7 @@
                     const initialLon = initialPosition.coords.longitude;
                     
                     // Set the map view to the initial location with a detailed zoom level (19 is for street level)
-                    map.setView([initialLat, initialLon], 19); 
+                    map.setView([initialLat, initialLon], 19);
                     resultDiv.innerHTML = 'Tracking started... Walk the perimeter now.';
                     
                     // Now, start watching the position for continuous updates
