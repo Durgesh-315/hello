@@ -8,18 +8,21 @@
         body { font-family: Arial, sans-serif; margin: 20px; background-color: #f9fafb; }
         #map { height: 600px; width: 100%; margin-top: 10px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
         .controls { margin-bottom: 20px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+        #searchInput { padding: 8px; border: 1px solid #e5e7eb; border-radius: 5px; width: 200px; }
         #result { margin-top: 20px; padding: 15px; border: 1px solid #e5e7eb; border-radius: 8px; background-color: #ffffff; }
         .spinner { display: none; border: 4px solid #f3f3f3; border-top: 4px solid #3b82f6; border-radius: 50%; width: 24px; height: 24px; animation: spin 1s linear infinite; margin: 10px auto; }
         .status-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background-color: #10b981; animation: blink 1.5s infinite; margin-right: 8px; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
-        @media (max-width: 640px) { #map { height: 400px; } .controls { flex-direction: column; align-items: flex-start; } }
+        @media (max-width: 640px) { #map { height: 400px; } .controls { flex-direction: column; align-items: flex-start; } #searchInput { width: 100%; } }
     </style>
 </head>
 <body>
     <h1 class="text-2xl font-bold text-gray-800">Easy Area Calculator</h1>
-    <p class="text-gray-600 mb-4">Click points on the map to measure an area (Manual mode) or walk outdoors with GPS mode. Click at least 3 points to calculate the area.</p>
+    <p class="text-gray-600 mb-4">Search or get your current location, click points on the map to measure an area (Manual mode), or walk outdoors with GPS mode. Use at least 3 points.</p>
     <div class="controls">
+        <input type="text" id="searchInput" placeholder="Search location (e.g., New York)" />
+        <button id="currentLocationButton" class="bg-green-500 text-white px-4 py-2 rounded-md hover:bg-green-600 transition">Get Current Location</button>
         <button id="startButton" class="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600 transition">Start Measurement</button>
         <button id="stopButton" class="bg-gray-500 text-white px-4 py-2 rounded-md hover:bg-gray-600 transition" disabled>Stop & Calculate</button>
         <label class="flex items-center text-gray-600">
@@ -51,7 +54,7 @@
             shadowSize: [24, 24]
         });
 
-        // Initialize the map with a default view
+        // Initialize the map
         const map = L.map('map').setView([0, 0], 2);
         L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
             attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> & <a href="https://carto.com/attributions">CARTO</a>',
@@ -69,6 +72,8 @@
         const startButton = document.getElementById('startButton');
         const stopButton = document.getElementById('stopButton');
         const gpsModeCheckbox = document.getElementById('gpsMode');
+        const searchInput = document.getElementById('searchInput');
+        const currentLocationButton = document.getElementById('currentLocationButton');
         const resultDiv = document.getElementById('result');
         const spinner = document.getElementById('spinner');
 
@@ -85,6 +90,64 @@
             const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
             return R * c;
         }
+
+        // Search location using Nominatim API
+        searchInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter' && searchInput.value.trim()) {
+                spinner.style.display = 'block';
+                resultDiv.innerHTML = 'Searching...';
+                fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(searchInput.value)}&format=json&limit=1`)
+                    .then(response => response.json())
+                    .then(data => {
+                        if (data.length > 0) {
+                            const lat = parseFloat(data[0].lat);
+                            const lon = parseFloat(data[0].lon);
+                            console.log('Search result:', { lat, lon, place: data[0].display_name });
+                            map.setView([lat, lon], 15);
+                            resultDiv.innerHTML = `Found: ${data[0].display_name}. Click Start to add points.`;
+                        } else {
+                            resultDiv.innerHTML = 'Location not found. Try another search (e.g., "Paris, France").';
+                        }
+                        spinner.style.display = 'none';
+                    })
+                    .catch(error => {
+                        console.error('Search error:', error);
+                        resultDiv.innerHTML = 'Error searching location. Try again or use Get Current Location.';
+                        spinner.style.display = 'none';
+                    });
+            }
+        });
+
+        // Get current location in Manual mode
+        currentLocationButton.addEventListener('click', () => {
+            if (isGpsMode) {
+                resultDiv.innerHTML = 'Switch to Manual mode to use Get Current Location.';
+                return;
+            }
+            if (!navigator.geolocation) {
+                resultDiv.innerHTML = 'Location not supported. Search a location instead.';
+                return;
+            }
+            spinner.style.display = 'block';
+            resultDiv.innerHTML = 'Getting your location...';
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    const lat = position.coords.latitude;
+                    const lon = position.coords.longitude;
+                    const accuracy = position.coords.accuracy;
+                    console.log('Current location:', { lat, lon, accuracy });
+                    map.setView([lat, lon], 15);
+                    resultDiv.innerHTML = `Found your location (Accuracy: ${accuracy.toFixed(1)}m). Click Start to add points.`;
+                    spinner.style.display = 'none';
+                },
+                (error) => {
+                    console.error('Current location error:', error);
+                    resultDiv.innerHTML = 'Unable to get location. Search a location or try again outdoors.';
+                    spinner.style.display = 'none';
+                },
+                { enableHighAccuracy: true, timeout: 5000, maximumAge: 5000 }
+            );
+        });
 
         // Handle manual point addition
         function onMapClick(e) {
@@ -107,7 +170,8 @@
                 if (pathLine) map.removeLayer(pathLine);
                 pathLine = L.polyline(latLngs, { color: '#ef4444', weight: 5, opacity: 0.8 }).addTo(map);
 
-                const newMarker = L.marker([lat, lon], { icon: pointIcon }).addTo(map);
+                const icon = coordinates.length === 1 ? startIcon : pointIcon;
+                const newMarker = L.marker([lat, lon], { icon }).addTo(map);
                 markers.push(newMarker);
 
                 resultDiv.innerHTML = `<span class="status-dot"></span>Clicked ${coordinates.length} point${coordinates.length === 1 ? '' : 's'}. Click at least 3 to calculate area.`;
@@ -126,7 +190,7 @@
                     watchId = null;
                 }
                 map.on('click', onMapClick);
-                resultDiv.innerHTML = 'Manual Mode: Click Start, then click the map to add points.';
+                resultDiv.innerHTML = 'Manual Mode: Search or get your location, then click Start to add points.';
                 startButton.disabled = false;
                 stopButton.disabled = true;
                 spinner.style.display = 'none';
@@ -147,7 +211,7 @@
 
             if (isGpsMode) {
                 if (!navigator.geolocation) {
-                    resultDiv.innerHTML = 'GPS not supported on this device. Use Manual mode to click points.';
+                    resultDiv.innerHTML = 'GPS not supported. Use Manual mode to click points.';
                     stopTracking();
                     return;
                 }
@@ -194,7 +258,8 @@
                             if (pathLine) map.removeLayer(pathLine);
                             pathLine = L.polyline(latLngs, { color: '#ef4444', weight: 5, opacity: 0.8 }).addTo(map);
 
-                            const newMarker = L.marker([lat, lon], { icon: pointIcon }).addTo(map);
+                            const icon = coordinates.length === 1 ? startIcon : pointIcon;
+                            const newMarker = L.marker([lat, lon], { icon }).addTo(map);
                             markers.push(newMarker);
 
                             resultDiv.innerHTML = `<span class="status-dot"></span>Tracking... ${coordinates.length} point${coordinates.length === 1 ? '' : 's'} collected, Accuracy: ${accuracy.toFixed(1)}m`;
@@ -248,7 +313,6 @@
                 );
             } else {
                 resultDiv.innerHTML = `<span class="status-dot"></span>Manual Mode: Click the map to add points.`;
-                map.setView([0, 0], 2);
                 map.invalidateSize();
                 spinner.style.display = 'none';
                 map.on('click', onMapClick);
@@ -313,7 +377,7 @@
         stopButton.addEventListener('click', stopTracking);
 
         // Initialize in Manual mode
-        resultDiv.innerHTML = 'Manual Mode: Click Start, then click the map to add points.';
+        resultDiv.innerHTML = 'Manual Mode: Search or get your location, then click Start to add points.';
         map.on('click', onMapClick);
 
         // Invalidate map size on load
