@@ -2,129 +2,191 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Walking Tracker - Minimal</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Land Area Calculator (GPS)</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css" />
   <style>
-    body { font-family: Arial; text-align: center; margin: 0; }
-    #map { height: 75vh; width: 100%; }
-    button { padding: 10px 20px; margin: 10px; font-size: 16px; }
-    #stats { font-size: 18px; margin-top: 10px; }
+    * {
+      box-sizing: border-box;
+    }
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+    }
+    #map {
+      height: 80vh;
+      width: 100%;
+    }
+    #controls {
+      padding: 10px;
+      background: #f4f4f4;
+      text-align: center;
+    }
+    #controls button {
+      padding: 10px 16px;
+      margin: 5px;
+      font-size: 16px;
+      border: none;
+      background: #007bff;
+      color: white;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+    #controls button:disabled {
+      background: #aaa;
+      cursor: not-allowed;
+    }
+    #info {
+      padding: 10px;
+      text-align: center;
+      font-size: 16px;
+      background: #fafafa;
+    }
+    #info span {
+      font-weight: bold;
+    }
   </style>
-  <link
-    rel="stylesheet"
-    href="https://unpkg.com/leaflet/dist/leaflet.css"
-  />
 </head>
 <body>
-  <h1> Tracker</h1>
-  <div id="map"></div>
-  <button id="startBtn">Start</button>
-  <button id="stopBtn">Stop</button>
-  <div id="stats">
-    <p><strong>Distance:</strong> <span id="distance">0</span> meters</p>
-    <p><strong>Steps:</strong> <span id="steps">0</span></p>
+
+  <div id="controls">
+    <button id="startBtn">Start</button>
+    <button id="stopBtn" disabled>Stop</button>
+    <button id="clearBtn">Clear</button>
   </div>
 
+  <div id="map"></div>
+
+  <div id="info">
+    📏 <strong>Area:</strong>
+    <span id="areaSqm">0</span> m² /
+    <span id="areaAcres">0</span> acres |
+    🔁 <strong>Perimeter:</strong> <span id="perimeter">0</span> m
+  </div>
+
+  <!-- Leaflet and Turf.js -->
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/@turf/turf/turf.min.js"></script>
+
   <script>
-    let map, marker, watchId;
-    let path = [];
-    let totalDistance = 0;
-    let polyline;
+    const map = L.map('map').setView([20, 77], 5);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      maxZoom: 19
+    }).addTo(map);
 
-    const MIN_DISTANCE = 5; // meters
-    const STEP_LENGTH = 0.762;
+    let pathPoints = [];
+    let polygonLayer = null;
+    let watchId = null;
+    let isTracking = false;
+    const CLOSE_DISTANCE = 10; // meters to auto-close polygon
 
-    // Initialize map at fixed coords first
-    function initMap(lat = 20.5937, lng = 78.9629) {
-      map = L.map('map').setView([lat, lng], 18);
-      L.tileLayer('https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png', {
-        attribution: '© OpenStreetMap contributors'
-      }).addTo(map);
-      marker = L.marker([lat, lng]).addTo(map);
-      polyline = L.polyline([], { color: 'blue' }).addTo(map);
+    const startBtn = document.getElementById('startBtn');
+    const stopBtn = document.getElementById('stopBtn');
+    const clearBtn = document.getElementById('clearBtn');
+    const areaSqmDisplay = document.getElementById('areaSqm');
+    const areaAcresDisplay = document.getElementById('areaAcres');
+    const perimeterDisplay = document.getElementById('perimeter');
+
+    function addPoint(latlng) {
+      if (!isTracking) return;
+      pathPoints.push(latlng);
+      L.circleMarker(latlng, { radius: 4, color: 'red' }).addTo(map);
+
+      if (pathPoints.length >= 3) {
+        const distanceToStart = map.distance(latlng, pathPoints[0]);
+        if (distanceToStart <= CLOSE_DISTANCE) {
+          stopTracking();
+          drawPolygon();
+          return;
+        }
+      }
+      drawPolygon();
+    }
+
+    function drawPolygon() {
+      if (polygonLayer) {
+        map.removeLayer(polygonLayer);
+      }
+      if (pathPoints.length >= 3) {
+        polygonLayer = L.polygon(pathPoints, { color: 'green' }).addTo(map);
+        calculateArea();
+      }
+    }
+
+    function calculateArea() {
+      const coords = pathPoints.map(p => [p.lng, p.lat]);
+      coords.push([pathPoints[0].lng, pathPoints[0].lat]); // Close the polygon
+
+      const polygon = turf.polygon([coords]);
+      const areaSqm = turf.area(polygon);
+      const areaAcres = areaSqm * 0.000247105; // convert sq meters to acres
+      const perimeter = turf.length(turf.lineString(coords), { units: 'meters' });
+
+      areaSqmDisplay.innerText = areaSqm.toFixed(2);
+      areaAcresDisplay.innerText = areaAcres.toFixed(4);
+      perimeterDisplay.innerText = perimeter.toFixed(2);
     }
 
     function startTracking() {
       if (!navigator.geolocation) {
-        alert('Geolocation not supported');
+        alert('Geolocation is not supported by your browser.');
         return;
       }
 
-      totalDistance = 0;
-      path = [];
-      document.getElementById('distance').textContent = '0';
-      document.getElementById('steps').textContent = '0';
+      isTracking = true;
+      startBtn.disabled = true;
+      stopBtn.disabled = false;
 
-      navigator.geolocation.getCurrentPosition(
+      watchId = navigator.geolocation.watchPosition(
         position => {
           const { latitude, longitude } = position.coords;
-
-          if (!map) {
-            initMap(latitude, longitude);
-          } else {
-            map.setView([latitude, longitude], 18);
-            marker.setLatLng([latitude, longitude]);
-          }
-
-          watchId = navigator.geolocation.watchPosition(
-            pos => {
-              const { latitude, longitude, accuracy } = pos.coords;
-              if (accuracy > 20) return;
-
-              const latlng = L.latLng(latitude, longitude);
-              marker.setLatLng(latlng);
-              map.panTo(latlng);
-
-              if (path.length > 0) {
-                const last = path[path.length - 1];
-                const dist = latlng.distanceTo(last);
-                if (dist >= MIN_DISTANCE) {
-                  totalDistance += dist;
-                  path.push(latlng);
-                  polyline.addLatLng(latlng);
-
-                  document.getElementById('distance').textContent = totalDistance.toFixed(2);
-                  document.getElementById('steps').textContent = Math.floor(totalDistance / STEP_LENGTH);
-                }
-              } else {
-                path.push(latlng);
-              }
-            },
-            err => {
-              alert('Error: ' + err.message);
-            },
-            {
-              enableHighAccuracy: true,
-              maximumAge: 500,
-              timeout: 10000,
-            }
-          );
+          const latlng = L.latLng(latitude, longitude);
+          addPoint(latlng);
+          map.setView(latlng, 18);
         },
-        err => {
-          alert('Error getting location: ' + err.message);
+        error => {
+          alert("Error getting location: " + error.message);
+        },
+        {
+          enableHighAccuracy: true,
+          maximumAge: 1000,
+          timeout: 10000
         }
       );
     }
 
     function stopTracking() {
-      if (watchId) {
+      if (watchId !== null) {
         navigator.geolocation.clearWatch(watchId);
         watchId = null;
-        alert(
-          `Stopped.\nTotal distance: ${totalDistance.toFixed(
-            2
-          )} meters\nEstimated steps: ${Math.floor(totalDistance / STEP_LENGTH)}`
-        );
       }
+      isTracking = false;
+      startBtn.disabled = false;
+      stopBtn.disabled = true;
     }
 
-    document.getElementById('startBtn').addEventListener('click', startTracking);
-    document.getElementById('stopBtn').addEventListener('click', stopTracking);
+    function clearMap() {
+      stopTracking();
+      pathPoints = [];
+      if (polygonLayer) {
+        map.removeLayer(polygonLayer);
+        polygonLayer = null;
+      }
 
-    // Initialize map on page load to some default coords
-    window.onload = () => {
-      initMap();
-    };
+      map.eachLayer(layer => {
+        if (layer instanceof L.CircleMarker) {
+          map.removeLayer(layer);
+        }
+      });
+
+      areaSqmDisplay.innerText = "0";
+      areaAcresDisplay.innerText = "0";
+      perimeterDisplay.innerText = "0";
+    }
+
+    startBtn.addEventListener('click', startTracking);
+    stopBtn.addEventListener('click', stopTracking);
+    clearBtn.addEventListener('click', clearMap);
   </script>
 </body>
 </html>
