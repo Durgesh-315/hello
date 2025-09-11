@@ -1,32 +1,26 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Land Area Calculator</title>
+    <title>GPS Land Area Calculator</title>
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.7.1/dist/leaflet.css" />
     <style>
-        /* CSS to style the map container */
-        #map {
-            height: 600px;
-            width: 100%;
-        }
-        /* Basic body styling for better readability */
-        body {
-            font-family: sans-serif;
-            margin: 20px;
-        }
-        /* Style for the result display area */
-        #result {
-            margin-top: 20px;
-            padding: 10px;
-            border: 1px solid #ccc;
-            border-radius: 5px;
-        }
+        body { font-family: sans-serif; margin: 20px; }
+        #map { height: 600px; width: 100%; margin-top: 10px; }
+        .controls { margin-bottom: 10px; }
+        .controls button { padding: 10px 15px; font-size: 16px; cursor: pointer; }
+        #result { margin-top: 20px; padding: 10px; border: 1px solid #ccc; border-radius: 5px; }
     </style>
 </head>
 <body>
 
-    <h1>Land Area Calculator</h1>
-    <p>Click on the map to define the corners of your land. **Double-click** on the last point to finish and calculate the area.</p>
+    <h1>GPS Land Area Calculator</h1>
+    <p>Press "Start Measurement," walk the perimeter of the land, then press "Stop & Calculate."</p>
+
+    <div class="controls">
+        <button id="startButton">Start Measurement</button>
+        <button id="stopButton" disabled>Stop & Calculate</button>
+    </div>
+
     <div id="map"></div>
     <div id="result"></div>
 
@@ -34,79 +28,106 @@
     <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
 
     <script>
-        // Initialize the map and set its initial view. The coordinates are for a location in India.
-        const map = L.map('map').setView([23.2599, 77.4126], 13);
-
-        // Add the base tile layer from OpenStreetMap.
+        // Initialize the map without a specific view, as the view will be set by the user's location.
+        const map = L.map('map').fitWorld();
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
         }).addTo(map);
 
-        let drawnItems = new L.FeatureGroup();
-        map.addLayer(drawnItems);
-
+        let watchId = null;
         let coordinates = [];
-        let drawnPolyline = null;
+        let pathLine = null;
+        let markers = [];
 
-        // Event listener for a single click on the map.
-        map.on('click', function(e) {
-            // Add the clicked point's coordinates to our array.
-            coordinates.push([e.latlng.lng, e.latlng.lat]);
+        const startButton = document.getElementById('startButton');
+        const stopButton = document.getElementById('stopButton');
+        const resultDiv = document.getElementById('result');
 
-            // Remove the temporary polyline if it exists.
-            if (drawnPolyline) {
-                map.removeLayer(drawnPolyline);
+        // Function to start the location tracking
+        function startTracking() {
+            startButton.disabled = true;
+            stopButton.disabled = false;
+            resultDiv.innerHTML = 'Tracking started... Walk the perimeter now.';
+            coordinates = [];
+            
+            // Clear previous markers and lines
+            if (pathLine) map.removeLayer(pathLine);
+            markers.forEach(marker => map.removeLayer(marker));
+            markers = [];
+
+            // Watch for changes in position with high accuracy
+            watchId = navigator.geolocation.watchPosition(
+                (position) => {
+                    const lat = position.coords.latitude;
+                    const lon = position.coords.longitude;
+                    const newPoint = [lon, lat];
+                    
+                    // Add the new coordinate
+                    coordinates.push(newPoint);
+
+                    // Update the line on the map
+                    const latLngs = coordinates.map(coord => [coord[1], coord[0]]);
+                    if (pathLine) map.removeLayer(pathLine);
+                    pathLine = L.polyline(latLngs, { color: 'red' }).addTo(map);
+
+                    // Add a marker for the latest point
+                    const newMarker = L.marker([lat, lon]).addTo(map);
+                    markers.push(newMarker);
+                    
+                    // Center the map on the latest position
+                    map.setView([lat, lon]);
+                },
+                (error) => {
+                    resultDiv.innerHTML = `Error: ${error.message}`;
+                    stopTracking();
+                },
+                { enableHighAccuracy: true, timeout: 5000, maximumAge: 0 }
+            );
+        }
+
+        // Function to stop tracking and calculate the area
+        function stopTracking() {
+            if (watchId !== null) {
+                navigator.geolocation.clearWatch(watchId);
+                watchId = null;
             }
-
-            // Draw a new polyline to visualize the shape as the user draws.
-            drawnPolyline = L.polyline(coordinates.map(coord => [coord[1], coord[0]]), {color: 'blue'}).addTo(map);
-
-            // Add a marker for the latest point.
-            L.marker(e.latlng).addTo(drawnItems);
-        });
-
-        // Event listener for a double-click on the map to finalize the polygon.
-        map.on('dblclick', function(e) {
+            startButton.disabled = false;
+            stopButton.disabled = true;
+            
             if (coordinates.length < 3) {
-                alert("Please select at least three points to form a polygon.");
+                resultDiv.innerHTML = "Not enough points to form a polygon. Please walk a larger area.";
                 return;
             }
 
-            // Close the polygon by adding the first coordinate at the end.
-            let finalCoordinates = coordinates;
+            // Close the polygon by adding the first coordinate at the end
+            const finalCoordinates = coordinates;
             finalCoordinates.push(coordinates[0]);
 
-            // Create a GeoJSON polygon feature using Turf.js.
-            let polygon = turf.polygon([finalCoordinates]);
+            // Create a GeoJSON polygon feature using Turf.js
+            const polygon = turf.polygon([finalCoordinates]);
 
-            // Calculate the area of the polygon in square meters.
-            let area = turf.area(polygon);
+            // Calculate the area in square meters and convert to other units
+            const areaInSqMeters = turf.area(polygon);
+            const areaInAcres = areaInSqMeters * 0.000247105;
+            const areaInHectares = areaInSqMeters * 0.0001;
+            const areaInSqFeet = areaInSqMeters * 10.7639;
 
-            // Convert the area to other common units.
-            const areaInSqMeters = area;
-            const areaInAcres = area * 0.000247105;
-            const areaInHectares = area * 0.0001;
-            const areaInSqFeet = area * 10.7639;
-
-            // Display the results in the designated div.
-            document.getElementById('result').innerHTML = `
+            // Display the results
+            resultDiv.innerHTML = `
                 <h3>Calculated Area:</h3>
                 <p><strong>Square Meters:</strong> ${areaInSqMeters.toFixed(2)}</p>
                 <p><strong>Acres:</strong> ${areaInAcres.toFixed(4)}</p>
                 <p><strong>Hectares:</strong> ${areaInHectares.toFixed(4)}</p>
                 <p><strong>Square Feet:</strong> ${areaInSqFeet.toFixed(2)}</p>
             `;
+            
+            // Draw the final closed polygon on the map
+            if (pathLine) map.removeLayer(pathLine);
+            L.polygon(finalCoordinates.map(coord => [coord[1], coord[0]]), {color: 'blue'}).addTo(map);
+        }
 
-            // Remove the temporary polyline and draw the final, colored polygon.
-            map.removeLayer(drawnPolyline);
-            L.polygon(finalCoordinates.map(coord => [coord[1], coord[0]]), {color: 'red'}).addTo(drawnItems);
-
-            // Reset the coordinates and layers for the next measurement.
-            coordinates = [];
-            drawnPolyline = null;
-            drawnItems.clearLayers();
-        });
+        startButton.addEventListener('click', startTracking);
+        stopButton.addEventListener('click', stopTracking);
     </script>
-
 </body>
 </html>
