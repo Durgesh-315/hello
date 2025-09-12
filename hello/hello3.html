@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Easy Area Calculator</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="" />
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; background-color: #f9fafb; }
+        #map { height: 600px; width: 100%; margin-top: 10px; border-radius: 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        #map.clickable { cursor: crosshair; }
+        .controls { margin-bottom: 20px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+        #searchInput { padding: 8px; border: 1px solid #e5e7eb; border-radius: 5px; width: 200px; }
+        #result { margin-top: 20px; padding: 15px; border: 1px solid #e5e7eb; border-radius: 8px; background-color: #ffffff; }
+        .spinner { display: none; border: 4px solid #f3f3f3; border-top: 4px solid #3b82f6; border-radius: 50%; width: 24px; height: 24px; animation: spin 1s linear infinite; margin: 10px auto; }
+        .status-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background-color: #10b981; animation: blink 1.5s infinite; margin-right: 8px; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+        @media (max-width: 640px) {
+            #map { height: 400px; }
+            .controls { flex-direction: column; align-items: stretch; }
+            #searchInput { width: 100%; }
+            body { margin: 10px; }
+        }
+    </style>
+</head>
+<body>
+    <h1 class="text-2xl font-bold text-gray-800">Easy Area Calculator</h1>
+    <p class="text-gray-600 mb-4">Toggle between standard, satellite, hybrid, or topographic views. Click points to measure an area (Manual mode) or walk outdoors with GPS mode. Use at least 3 points. Clear the map to start a new measurement.</p>
+    <div class="controls">
+        <div class="flex items-center gap-2 w-full sm:w-auto">
+            <input type="text" id="searchInput" placeholder="Enter a city or address (e.g., Paris, France)" aria-label="Search for a location" tabindex="0" class="w-full sm:w-[200px]" />
+            <button id="searchButton" class="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600 transition" aria-label="Search location" tabindex="0">Search</button>
+        </div>
+        <button id="currentLocationButton" class="bg-green-500 text-white px-4 py-2 rounded-md hover:bg-green-600 transition" aria-label="Get current location" tabindex="0">Get Current Location</button>
+        <button id="startButton" class="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600 transition" aria-label="Start measuring area" tabindex="0">Start Measurement</button>
+        <button id="stopButton" class="bg-gray-500 text-white px-4 py-2 rounded-md hover:bg-gray-600 transition" disabled aria-label="Stop and calculate area" tabindex="0">Stop & Calculate</button>
+        <button id="pauseButton" class="bg-yellow-500 text-white px-4 py-2 rounded-md hover:bg-yellow-600 transition" disabled aria-label="Pause or resume tracking" tabindex="0">Pause Tracking</button>
+        <button id="undoButton" class="bg-yellow-500 text-white px-4 py-2 rounded-md hover:bg-yellow-600 transition" disabled aria-label="Undo last point" tabindex="0">Undo Last Point</button>
+        <button id="clearButton" class="bg-red-500 text-white px-4 py-2 rounded-md hover:bg-red-600 transition" disabled aria-label="Clear map and reset" tabindex="0">Clear Map</button>
+        <button id="fullscreenButton" class="bg-purple-500 text-white px-4 py-2 rounded-md hover:bg-purple-600 transition" aria-label="Toggle fullscreen" tabindex="0">Fullscreen</button>
+        <label class="flex items-center text-gray-600">
+            <input type="checkbox" id="gpsMode" class="mr-2" aria-label="Enable GPS mode for outdoor tracking">
+            Use GPS mode (outdoors only)
+        </label>
+        <select id="unitSelect" class="border border-gray-300 rounded-md px-2 py-1" aria-label="Select area unit">
+            <option value="all">All Units</option>
+            <option value="sqm">Square Meters</option>
+            <option value="acres">Acres</option>
+            <option value="hectares">Hectares</option>
+            <option value="sqft">Square Feet</option>
+        </select>
+    </div>
+    <div id="map"></div>
+    <div id="spinner" class="spinner"></div>
+    <div id="result" class="text-gray-800" aria-live="polite">Loading your location... Allow location permissions if prompted.</div>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <script src="https://cdn.jsdelivr.net/npm/@turf/turf@7/turf.min.js"></script>
+    <script>
+        // Configuration
+        const config = {
+            geolocationTimeout: 15000,
+            maximumAge: 30000,
+            minAccuracy: 80
+        };
+
+        // Custom marker icons (using div-based icons for copyright safety)
+        const startIcon = L.divIcon({
+            className: 'custom-marker',
+            html: '<div style="background-color: green; width: 20px; height: 20px; border-radius: 50%; border: 2px solid white;"></div>',
+            iconSize: [20, 20],
+            iconAnchor: [10, 10]
+        });
+        const pointIcon = L.divIcon({
+            className: 'custom-marker',
+            html: '<div style="background-color: blue; width: 12px; height: 12px; border-radius: 50%; border: 2px solid white;"></div>',
+            iconSize: [12, 12],
+            iconAnchor: [6, 6]
+        });
+
+        // Initialize the map with mobile-friendly options
+        const map = L.map('map', {
+            center: [0, 0],
+            zoom: 2,
+            zoomControl: true,
+            touchZoom: true,
+            scrollWheelZoom: false, // Disable scroll zoom by default for mobile
+            doubleClickZoom: true,
+            tap: false, // Improve scrolling on mobile
+            bounceAtZoomLimits: false
+        });
+
+        // Enable scroll wheel zoom only when map is focused
+        map.on('focus', () => { map.scrollWheelZoom.enable(); });
+        map.on('blur', () => { map.scrollWheelZoom.disable(); });
+
+        // Create pane for labels
+        map.createPane('labels');
+        map.getPane('labels').style.zIndex = 650;
+        map.getPane('labels').style.pointerEvents = 'none';
+
+        // Define base layers
+        const standardLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+            maxNativeZoom: 19,
+            maxZoom: 22
+        }).addTo(map);
+
+        const satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+            attribution: '&copy; <a href="https://www.esri.com/">Esri</a>, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community',
+            maxNativeZoom: 18,
+            maxZoom: 22
+        });
+
+        const labelsLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}{r}.png', {
+            attribution: '&copy; <a href="https://carto.com/attributions">CARTO</a>',
+            pane: 'labels',
+            maxNativeZoom: 20,
+            maxZoom: 22
+        });
+
+        const topoLayer = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
+            attribution: '&copy; <a href="https://opentopomap.org">OpenTopoMap</a> (<a href="https://creativecommons.org/licenses/by-sa/3.0/">CC-BY-SA</a>)',
+            maxNativeZoom: 17,
+            maxZoom: 22
+        });
+
+        const hybridLayer = L.layerGroup([satelliteLayer, labelsLayer]);
+
+        // Handle tile loading errors
+        standardLayer.on('tileerror', () => {
+            document.getElementById('result').innerHTML = 'Error loading standard map tiles. Check your internet connection or try again later.';
+            console.error('Standard tile layer error');
+        });
+        satelliteLayer.on('tileerror', () => {
+            document.getElementById('result').innerHTML = 'Error loading satellite map tiles. Check your internet connection or try again later. Note: High-resolution satellite imagery may not be available in all areas.';
+            console.error('Satellite tile layer error');
+        });
+        topoLayer.on('tileerror', () => {
+            document.getElementById('result').innerHTML = 'Error loading topographic map tiles. Check your internet connection or try again later.';
+            console.error('Topographic tile layer error');
+        });
+
+        // Add layer control
+        const baseLayers = {
+            "Standard View": standardLayer,
+            "Satellite View": satelliteLayer,
+            "Hybrid View": hybridLayer,
+            "Topographic View": topoLayer
+        };
+        L.control.layers(baseLayers, null, { collapsed: false }).addTo(map);
+
+        // Debug layer changes
+        map.on('baselayerchange', (e) => {
+            console.log('Layer changed to:', e.name);
+            map.invalidateSize(); // Ensure map renders correctly after layer change
+        });
+
+        // Add scale control
+        L.control.scale({ imperial: true, metric: true }).addTo(map);
+
+        let coordinates = [];
+        let pathLine = null;
+        let markers = [];
+        let lastPosition = null;
+        let lastUpdateTime = 0;
+        let isGpsMode = false;
+        let isPaused = false;
+        let isTracking = false;
+        let polygonLayer = null;
+        let currentLocationLayer = null;
+        const startButton = document.getElementById('startButton');
+        const stopButton = document.getElementById('stopButton');
+        const pauseButton = document.getElementById('pauseButton');
+        const undoButton = document.getElementById('undoButton');
+        const clearButton = document.getElementById('clearButton');
+        const gpsModeCheckbox = document.getElementById('gpsMode');
+        const searchInput = document.getElementById('searchInput');
+        const searchButton = document.getElementById('searchButton');
+        const currentLocationButton = document.getElementById('currentLocationButton');
+        const fullscreenButton = document.getElementById('fullscreenButton');
+        const resultDiv = document.getElementById('result');
+        const spinner = document.getElementById('spinner');
+        const unitSelect = document.getElementById('unitSelect');
+
+        // Fullscreen toggle
+        fullscreenButton.addEventListener('click', () => {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen().catch(err => {
+                    console.error('Fullscreen error:', err);
+                });
+                fullscreenButton.textContent = 'Exit Fullscreen';
+            } else {
+                document.exitFullscreen();
+                fullscreenButton.textContent = 'Fullscreen';
+            }
+            setTimeout(() => map.invalidateSize(), 100); // Adjust map size after fullscreen toggle
+        });
+
+        // Calculate distance between two points (in meters)
+        function getDistance(coord1, coord2) {
+            const toRad = (deg) => deg * Math.PI / 180;
+            const R = 6371000; // Earth's radius in meters
+            const lat1 = coord1[1], lon1 = coord1[0], lat2 = coord2[1], lon2 = coord2[0];
+            const dLat = toRad(lat2 - lat1);
+            const dLon = toRad(lon2 - lon1);
+            const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                      Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) *
+                      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+            return R * c;
+        }
+
+        // Location found handler
+        function onLocationFound(e) {
+            const lat = e.latlng.lat;
+            const lon = e.latlng.lng;
+            const accuracy = e.accuracy;
+            console.log('Location found:', { lat, lon, accuracy });
+
+            // Show only blue dot for current location
+            if (currentLocationLayer) map.removeLayer(currentLocationLayer);
+            currentLocationLayer = L.circleMarker(e.latlng, { radius: 8, color: 'blue', fillColor: 'blue', fillOpacity: 1 }).addTo(map);
+
+            if (isTracking) {
+                // GPS tracking mode logic
+                if (accuracy > config.minAccuracy) {
+                    console.log('Skipping point due to low accuracy:', accuracy);
+                    resultDiv.innerHTML = `<span class="status-dot"></span>Waiting for better GPS signal (Accuracy: ${accuracy.toFixed(1)}m). Move to an open area.`;
+                    return;
+                }
+
+                const newPoint = [lon, lat];
+                if (lastPosition && getDistance(newPoint, lastPosition) < 5) {
+                    console.log('Skipping point: too close to last position');
+                    return;
+                }
+
+                if (Date.now() - lastUpdateTime < 2000) {
+                    console.log('Skipping point: too soon since last update');
+                    return;
+                }
+
+                coordinates.push(newPoint);
+                lastPosition = newPoint;
+                lastUpdateTime = Date.now();
+
+                const latLngs = coordinates.map(coord => [coord[1], coord[0]]);
+                if (pathLine) map.removeLayer(pathLine);
+                pathLine = L.polyline(latLngs, { color: '#ef4444', weight: 5, opacity: 0.8 }).addTo(map);
+
+                const icon = coordinates.length === 1 ? startIcon : pointIcon;
+                const newMarker = L.marker([lat, lon], { icon }).addTo(map);
+                markers.push(newMarker);
+
+                resultDiv.innerHTML = `<span class="status-dot"></span>Tracking... ${coordinates.length} point${coordinates.length === 1 ? '' : 's'} collected, Accuracy: ${accuracy.toFixed(1)}m`;
+
+                // Smoothly pan to new position if out of bounds
+                if (!map.getBounds().contains(e.latlng)) {
+                    map.panTo(e.latlng, { animate: true, duration: 0.5 });
+                }
+            } else {
+                // Standard location found
+                resultDiv.innerHTML = `Found your location (Accuracy: ${accuracy.toFixed(1)}m). Click Start to add points.`;
+            }
+            spinner.style.display = 'none';
+        }
+
+        // Location error handler
+        function onLocationError(e) {
+            console.error('Location error:', e.message);
+            let errorMessage = 'Unable to get location. Try again outdoors or search a location.';
+            if (e.code === 1) {
+                errorMessage = 'Location permission denied. Please allow location access in your browser settings or search a location.';
+            } else if (e.code === 2) {
+                errorMessage = 'No GPS signal detected. Try moving outdoors or search a location.';
+            } else if (e.code === 3) {
+                errorMessage = 'Location request timed out. Try again outdoors or search a location.';
+            }
+            resultDiv.innerHTML = errorMessage;
+            spinner.style.display = 'none';
+            if (isTracking) {
+                stopTracking();
+            }
+        }
+
+        map.on('locationfound', onLocationFound);
+        map.on('locationerror', onLocationError);
+
+        // Search location using Nominatim API with debouncing
+        let searchTimeout;
+        function performSearch() {
+            if (searchInput.value.trim()) {
+                clearTimeout(searchTimeout);
+                searchTimeout = setTimeout(() => {
+                    spinner.style.display = 'block';
+                    resultDiv.innerHTML = 'Searching...';
+                    fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(searchInput.value)}&format=json&limit=1`)
+                        .then(response => response.json())
+                        .then(data => {
+                            if (data.length > 0) {
+                                const lat = parseFloat(data[0].lat);
+                                const lon = parseFloat(data[0].lon);
+                                console.log('Search result:', { lat, lon, place: data[0].display_name });
+                                map.setView([lat, lon], 15);
+                                resultDiv.innerHTML = `Found: ${data[0].display_name}. Click Start to add points.`;
+                            } else {
+                                resultDiv.innerHTML = 'Location not found. Try a more specific search (e.g., "Paris, France").';
+                            }
+                            spinner.style.display = 'none';
+                        })
+                        .catch(error => {
+                            console.error('Search error:', error);
+                            resultDiv.innerHTML = 'Error searching location. Try again or use Get Current Location.';
+                            spinner.style.display = 'none';
+                        });
+                }, 1000);
+            }
+        }
+
+        searchInput.addEventListener('keypress', (e) => {
+            if (e.key === 'Enter') performSearch();
+        });
+        searchButton.addEventListener('click', performSearch);
+
+        // Get current location button
+        currentLocationButton.addEventListener('click', () => {
+            if (isGpsMode) {
+                resultDiv.innerHTML = 'Switch to Manual mode to use Get Current Location.';
+                return;
+            }
+            spinner.style.display = 'block';
+            resultDiv.innerHTML = 'Getting your location...';
+            map.locate({ setView: true, maxZoom: 15, enableHighAccuracy: true, timeout: config.geolocationTimeout });
+        });
+
+        // Handle manual point addition
+        function onMapClick(e) {
+            if (!isGpsMode && startButton.disabled && !isPaused) {
+                const lat = e.latlng.lat;
+                const lon = e.latlng.lng;
+                const newPoint = [lon, lat];
+                console.log('Manual point added:', { lat, lon });
+
+                coordinates.push(newPoint);
+                lastPosition = newPoint;
+                lastUpdateTime = Date.now();
+
+                const latLngs = coordinates.map(coord => [coord[1], coord[0]]);
+                if (pathLine) map.removeLayer(pathLine);
+                pathLine = L.polyline(latLngs, { color: '#ef4444', weight: 5, opacity: 0.8 }).addTo(map);
+
+                const icon = coordinates.length === 1 ? startIcon : pointIcon;
+                const newMarker = L.marker([lat, lon], { icon }).addTo(map);
+                markers.push(newMarker);
+
+                resultDiv.innerHTML = `<span class="status-dot"></span>Clicked ${coordinates.length} point${coordinates.length === 1 ? '' : 's'}. Click at least 3 to calculate area.`;
+                undoButton.disabled = false;
+            }
+        }
+
+        // Toggle GPS mode
+        gpsModeCheckbox.addEventListener('change', () => {
+            isGpsMode = gpsModeCheckbox.checked;
+            map.off('click', onMapClick);
+            if (isGpsMode) {
+                resultDiv.innerHTML = 'GPS Mode: Click Start to track your walk outdoors. Allow location permissions.';
+            } else {
+                map.stopLocate();
+                map.on('click', onMapClick);
+                resultDiv.innerHTML = 'Manual Mode: Click Start to add points.';
+                startButton.disabled = false;
+                stopButton.disabled = true;
+                clearButton.disabled = true;
+                pauseButton.disabled = true;
+                undoButton.disabled = true;
+                spinner.style.display = 'none';
+            }
+        });
+
+        // Function to clear the map
+        function clearMap() {
+            coordinates = [];
+            lastPosition = null;
+            lastUpdateTime = 0;
+            if (pathLine) {
+                map.removeLayer(pathLine);
+                pathLine = null;
+            }
+            if (polygonLayer) {
+                map.removeLayer(polygonLayer);
+                polygonLayer = null;
+            }
+            markers.forEach(marker => map.removeLayer(marker));
+            markers = [];
+            resultDiv.innerHTML = isGpsMode ? 'GPS Mode: Click Start to track your walk outdoors.' : 'Manual Mode: Click Start to add points.';
+            startButton.disabled = false;
+            stopButton.disabled = true;
+            clearButton.disabled = true;
+            pauseButton.disabled = true;
+            undoButton.disabled = true;
+            map.off('click', onMapClick);
+            if (!isGpsMode) map.on('click', onMapClick);
+            map.getContainer().classList.remove('clickable');
+            console.log('Map cleared');
+        }
+
+        // Function to undo last point
+        undoButton.addEventListener('click', () => {
+            if (coordinates.length > 0 && !isGpsMode && startButton.disabled) {
+                coordinates.pop();
+                map.removeLayer(markers.pop());
+                if (pathLine) map.removeLayer(pathLine);
+                if (coordinates.length > 0) {
+                    const latLngs = coordinates.map(coord => [coord[1], coord[0]]);
+                    pathLine = L.polyline(latLngs, { color: '#ef4444', weight: 5, opacity: 0.8 }).addTo(map);
+                    resultDiv.innerHTML = `<span class="status-dot"></span>Clicked ${coordinates.length} point${coordinates.length === 1 ? '' : 's'}. Click at least 3 to calculate area.`;
+                } else {
+                    resultDiv.innerHTML = `<span class="status-dot"></span>Manual Mode: Click the map to add points.`;
+                    undoButton.disabled = true;
+                }
+                console.log('Undid last point. Remaining points:', coordinates.length);
+            }
+        });
+
+        // Function to start measurement
+        function startTracking() {
+            clearMap();
+            startButton.disabled = true;
+            stopButton.disabled = false;
+            clearButton.disabled = true;
+            pauseButton.disabled = !isGpsMode;
+            undoButton.disabled = isGpsMode;
+            map.off('click', onMapClick);
+
+            if (isGpsMode) {
+                isTracking = true;
+                resultDiv.innerHTML = 'Getting your location...';
+                spinner.style.display = 'block';
+                map.locate({ watch: true, setView: true, maxZoom: 19, enableHighAccuracy: true, timeout: config.geolocationTimeout });
+            } else {
+                resultDiv.innerHTML = `<span class="status-dot"></span>Manual Mode: Click the map to add points.`;
+                map.invalidateSize();
+                spinner.style.display = 'none';
+                map.on('click', onMapClick);
+                map.getContainer().classList.add('clickable');
+            }
+        }
+
+        // Function to pause/resume tracking
+        pauseButton.addEventListener('click', () => {
+            if (!isGpsMode || !startButton.disabled) return;
+            if (isPaused) {
+                isPaused = false;
+                pauseButton.textContent = 'Pause Tracking';
+                resultDiv.innerHTML = `<span class="status-dot"></span>Tracking resumed... Walk to mark your area.`;
+                map.locate({ watch: true, setView: false, enableHighAccuracy: true, timeout: config.geolocationTimeout });
+            } else {
+                isPaused = true;
+                pauseButton.textContent = 'Resume Tracking';
+                map.stopLocate();
+                resultDiv.innerHTML = `<span class="status-dot"></span>Tracking paused. ${coordinates.length} point${coordinates.length === 1 ? '' : 's'} collected.`;
+            }
+        });
+
+        // Function to stop tracking and calculate the area
+        function stopTracking() {
+            map.stopLocate();
+            isTracking = false;
+            isPaused = false;
+            pauseButton.textContent = 'Pause Tracking';
+            pauseButton.disabled = true;
+            undoButton.disabled = true;
+            map.off('click', onMapClick);
+            map.getContainer().classList.remove('clickable');
+            startButton.disabled = false;
+            stopButton.disabled = true;
+            clearButton.disabled = false;
+            spinner.style.display = 'none';
+
+            if (coordinates.length < 3) {
+                resultDiv.innerHTML = isGpsMode
+                    ? `Need more points! Walk further to collect at least 3 points for area calculation. (${coordinates.length} point${coordinates.length === 1 ? '' : 's'} collected)`
+                    : `Need more points! Click at least 3 points to calculate area. (${coordinates.length} point${coordinates.length === 1 ? '' : 's'} collected)`;
+                clearButton.disabled = false;
+                return;
+            }
+
+            const finalCoordinates = [...coordinates, coordinates[0]];
+            console.log('Final coordinates:', finalCoordinates);
+
+            try {
+                const polygon = turf.polygon([finalCoordinates]);
+                const kinks = turf.kinks(polygon);
+                if (kinks.features.length > 0) {
+                    kinks.features.forEach(kink => {
+                        L.circleMarker([kink.geometry.coordinates[1], kink.geometry.coordinates[0]], {
+                            radius: 8,
+                            color: '#ff0000',
+                            fillOpacity: 0.5
+                        }).addTo(map).bindPopup('Intersection detected here.');
+                    });
+                    throw new Error('Self-intersecting polygon');
+                }
+                const simplified = turf.simplify(polygon, { tolerance: 0.00001, highQuality: true });
+                const areaInSqMeters = turf.area(simplified);
+                const areaInAcres = areaInSqMeters * 0.000247105;
+                const areaInHectares = areaInSqMeters * 0.0001;
+                const areaInSqFeet = areaInSqMeters * 10.7639;
+
+                const selectedUnit = unitSelect.value;
+                let areaText = '';
+                if (selectedUnit === 'all') {
+                    areaText = `
+                        <p><strong>Square Meters:</strong> ${areaInSqMeters.toFixed(2)}</p>
+                        <p><strong>Acres:</strong> ${areaInAcres.toFixed(4)}</p>
+                        <p><strong>Hectares:</strong> ${areaInHectares.toFixed(4)}</p>
+                        <p><strong>Square Feet:</strong> ${areaInSqFeet.toFixed(2)}</p>
+                    `;
+                } else {
+                    const unitMap = {
+                        sqm: `Square Meters: ${areaInSqMeters.toFixed(2)}`,
+                        acres: `Acres: ${areaInAcres.toFixed(4)}`,
+                        hectares: `Hectares: ${areaInHectares.toFixed(4)}`,
+                        sqft: `Square Feet: ${areaInSqFeet.toFixed(2)}`
+                    };
+                    areaText = `<p><strong>${unitMap[selectedUnit]}</strong></p>`;
+                }
+
+                resultDiv.innerHTML = `
+                    <h3 class="text-lg font-semibold">Area Calculated:</h3>
+                    ${areaText}
+                    <p>Click Clear Map to start a new measurement.</p>
+                `;
+
+                if (pathLine) map.removeLayer(pathLine);
+                pathLine = null;
+                const latLngs = finalCoordinates.map(coord => [coord[1], coord[0]]);
+                if (polygonLayer) map.removeLayer(polygonLayer);
+                polygonLayer = L.polygon(latLngs, {
+                    color: '#3b82f6',
+                    fillColor: '#3b82f6',
+                    fillOpacity: 0.3,
+                    weight: 4,
+                    dashArray: '5, 10'
+                }).addTo(map);
+
+                const bounds = L.latLngBounds(latLngs);
+                map.fitBounds(bounds, { padding: [50, 50], maxZoom: 19 });
+            } catch (e) {
+                console.error('Turf.js error:', e);
+                let errorMessage = 'Unable to calculate area. Ensure your points form a closed shape without overlapping lines.';
+                if (e.message.includes('Self-intersecting polygon')) {
+                    errorMessage = 'Invalid shape: Points create a self-intersecting polygon. Try reordering or simplifying your points.';
+                } else if (e.message.includes('coordinates')) {
+                    errorMessage = 'Invalid coordinates: Ensure all points are valid and form a closed shape.';
+                }
+                resultDiv.innerHTML = `${errorMessage} (${coordinates.length} point${coordinates.length === 1 ? '' : 's'} collected). Click Clear Map to start over.`;
+                clearButton.disabled = false;
+            }
+        }
+
+        // Add event listeners
+        startButton.addEventListener('click', startTracking);
+        stopButton.addEventListener('click', stopTracking);
+        clearButton.addEventListener('click', clearMap);
+
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            setTimeout(() => map.invalidateSize(), 100);
+        });
+
+        // Invalidate map size on load
+        setTimeout(() => map.invalidateSize(), 100);
+
+        // Automatically get location on load like Google Maps
+        map.locate({ setView: true, maxZoom: 15, enableHighAccuracy: true, timeout: config.geolocationTimeout });
+    </script>
+</body>
+</html>
