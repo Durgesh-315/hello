@@ -1,0 +1,456 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Advanced Land Measurement Web App</title>
+
+<!-- Leaflet CSS -->
+<link
+  rel="stylesheet"
+  href="https://unpkg.com/leaflet@1.9.3/dist/leaflet.css"
+/>
+
+<style>
+  body, html {
+    height: 100%;
+    margin: 0;
+    font-family: Arial, sans-serif;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #map {
+    height: 80vh;
+    width: 100%;
+  }
+  #info {
+    height: 20vh;
+    padding: 10px;
+    background: #f8f9fa;
+    box-shadow: 0 -2px 5px rgba(0,0,0,0.1);
+    display: flex;
+    flex-direction: column;
+    justify-content: space-around;
+  }
+  #area, #perimeter, #accuracy {
+    font-weight: bold;
+    font-size: 1.2em;
+  }
+  #buttons {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  button, input[type="file"] {
+    background-color: #007bff;
+    border: none;
+    padding: 10px 16px;
+    color: white;
+    font-weight: 600;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 1em;
+    user-select: none;
+  }
+  button:hover, input[type="file"]:hover {
+    background-color: #0056b3;
+  }
+  input[type="file"] {
+    padding: 6px 10px;
+  }
+  #instructions {
+    font-size: 1em;
+    color: #555;
+  }
+  @media (max-width: 600px) {
+    #info {
+      height: 25vh;
+      padding: 8px;
+    }
+    button, input[type="file"] {
+      flex: 1 1 100%;
+      font-size: 1.1em;
+    }
+    #buttons {
+      flex-direction: column;
+    }
+  }
+</style>
+</head>
+<body>
+<div id="map"></div>
+<div id="info">
+  <div id="instructions">
+    Click on the map to add points outlining your land.<br />
+    Or turn on <b>Tracking Mode</b> to walk your land and auto-add points.
+  </div>
+  <div>
+    Area: <span id="area">0</span> m² &nbsp;&nbsp;|&nbsp;&nbsp; Perimeter: <span id="perimeter">0</span> m
+  </div>
+  <div>
+    GPS Accuracy: <span id="accuracy">N/A</span>
+  </div>
+  <div id="buttons">
+    <button id="clearBtn">Clear</button>
+    <button id="exportGeoJSONBtn">Export GeoJSON</button>
+    <button id="exportKMLBtn">Export KML</button>
+    <button id="exportCSVBtn">Export CSV</button>
+    <input type="file" id="importFileInput" accept=".geojson,.json,.kml,.csv" title="Import GeoJSON, KML or CSV" />
+    <button id="toggleTrackingBtn">Start Tracking</button>
+  </div>
+</div>
+
+<!-- Leaflet JS -->
+<script
+  src="https://unpkg.com/leaflet@1.9.3/dist/leaflet.js"
+  crossorigin=""
+></script>
+<!-- Turf.js for area and perimeter calculations -->
+<script src="https://unpkg.com/@turf/turf@6.5.0/turf.min.js"></script>
+
+<script>
+// Map layers
+const baseLayers = {
+  "OpenStreetMap": L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }),
+  "Satellite": L.tileLayer('https://{s}.google.com/vt/lyrs=s&x={x}&y={y}&z={z}', {
+    maxZoom: 20,
+    subdomains:['mt0','mt1','mt2','mt3']
+  }),
+  "Terrain": L.tileLayer('https://{s}.google.com/vt/lyrs=p&x={x}&y={y}&z={z}', {
+    maxZoom: 20,
+    subdomains:['mt0','mt1','mt2','mt3']
+  }),
+};
+
+// Initialize map
+let map = L.map('map', {
+  layers: [baseLayers.OpenStreetMap],
+  zoomControl: true,
+});
+L.control.layers(baseLayers).addTo(map);
+
+// UI Elements
+const areaDisplay = document.getElementById('area');
+const perimeterDisplay = document.getElementById('perimeter');
+const accuracyDisplay = document.getElementById('accuracy');
+const clearBtn = document.getElementById('clearBtn');
+const exportGeoJSONBtn = document.getElementById('exportGeoJSONBtn');
+const exportKMLBtn = document.getElementById('exportKMLBtn');
+const exportCSVBtn = document.getElementById('exportCSVBtn');
+const importFileInput = document.getElementById('importFileInput');
+const toggleTrackingBtn = document.getElementById('toggleTrackingBtn');
+
+let markers = [];
+let polygon = null;
+let tracking = false;
+let watchID = null;
+
+// Center map on user location or fallback
+function centerMap() {
+  if (navigator.geolocation) {
+    navigator.geolocation.getCurrentPosition(
+      pos => {
+        map.setView([pos.coords.latitude, pos.coords.longitude], 16);
+      },
+      err => {
+        alert('Geolocation error: ' + err.message + '. Using default location.');
+        map.setView([0, 0], 2);
+      }
+    );
+  } else {
+    alert('Geolocation not supported by your browser. Using default location.');
+    map.setView([0, 0], 2);
+  }
+}
+centerMap();
+
+// Add marker at location with dragging enabled
+function addPoint(latlng) {
+  const marker = L.marker(latlng, { draggable: true }).addTo(map);
+  markers.push(marker);
+
+  marker.on('drag', updatePolygonAndMetrics);
+  marker.on('dragend', updatePolygonAndMetrics);
+
+  updatePolygonAndMetrics();
+}
+
+// Update polygon and display area, perimeter, accuracy
+function updatePolygonAndMetrics(position) {
+  // Remove old polygon if exists
+  if (polygon) {
+    map.removeLayer(polygon);
+    polygon = null;
+  }
+
+  if (markers.length < 3) {
+    areaDisplay.textContent = '0';
+    perimeterDisplay.textContent = '0';
+    return; // Need at least 3 points to make polygon
+  }
+
+  // Get coordinates from markers
+  const latlngs = markers.map(m => m.getLatLng());
+  const latlngsClosed = [...latlngs, latlngs[0]]; // close polygon
+
+  // Draw polygon
+  polygon = L.polygon(latlngsClosed, { color: 'blue', fillOpacity: 0.2 }).addTo(map);
+
+  // Calculate area and perimeter using turf.js
+  const coords = latlngs.map(ll => [ll.lng, ll.lat]);
+  coords.push(coords[0]);
+
+  const polygonGeoJSON = { type: 'Polygon', coordinates: [coords] };
+
+  const area = turf.area(polygonGeoJSON);
+  const perimeter = turf.length(polygonGeoJSON, {units: 'meters'}) * 1000;
+
+  areaDisplay.textContent = area.toFixed(2);
+  perimeterDisplay.textContent = perimeter.toFixed(2);
+
+  if (position && position.coords.accuracy) {
+    accuracyDisplay.textContent = position.coords.accuracy.toFixed(1) + ' m';
+  }
+}
+
+// Clear all markers and polygon
+clearBtn.addEventListener('click', () => {
+  markers.forEach(m => map.removeLayer(m));
+  markers = [];
+  if (polygon) {
+    map.removeLayer(polygon);
+    polygon = null;
+  }
+  areaDisplay.textContent = '0';
+  perimeterDisplay.textContent = '0';
+  accuracyDisplay.textContent = 'N/A';
+  if (tracking) stopTracking();
+});
+
+// Map click adds point (if not tracking)
+map.on('click', e => {
+  if (!tracking) addPoint(e.latlng);
+});
+
+// --- EXPORT FUNCTIONS ---
+
+// Export GeoJSON
+exportGeoJSONBtn.addEventListener('click', () => {
+  if (markers.length < 3) {
+    alert('Add at least 3 points to export polygon.');
+    return;
+  }
+  const geojson = polygon.toGeoJSON();
+  const blob = new Blob([JSON.stringify(geojson, null, 2)], { type: 'application/json' });
+  downloadBlob(blob, 'polygon.geojson');
+});
+
+// Export KML (simple polygon)
+exportKMLBtn.addEventListener('click', () => {
+  if (markers.length < 3) {
+    alert('Add at least 3 points to export polygon.');
+    return;
+  }
+  const coords = markers.map(m => m.getLatLng());
+  let kmlCoords = coords.map(c => `${c.lng},${c.lat},0`).join(' ');
+  // Close polygon
+  kmlCoords += ` ${coords[0].lng},${coords[0].lat},0`;
+
+  const kml = `<?xml version="1.0" encoding="UTF-8"?>
+  <kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <Placemark>
+      <name>Polygon</name>
+      <Polygon>
+        <outerBoundaryIs>
+          <LinearRing>
+            <coordinates>
+              ${kmlCoords}
+            </coordinates>
+          </LinearRing>
+        </outerBoundaryIs>
+      </Polygon>
+    </Placemark>
+  </Document>
+  </kml>`;
+
+  const blob = new Blob([kml], { type: 'application/vnd.google-earth.kml+xml' });
+  downloadBlob(blob, 'polygon.kml');
+});
+
+// Export CSV (lat,lng per point)
+exportCSVBtn.addEventListener('click', () => {
+  if (markers.length < 1) {
+    alert('Add points to export CSV.');
+    return;
+  }
+  const coords = markers.map(m => m.getLatLng());
+  let csv = 'lat,lng\n';
+  coords.forEach(c => {
+    csv += `${c.lat},${c.lng}\n`;
+  });
+  const blob = new Blob([csv], { type: 'text/csv' });
+  downloadBlob(blob, 'polygon.csv');
+});
+
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => {
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, 100);
+}
+
+// --- IMPORT FUNCTION ---
+importFileInput.addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  const reader = new FileReader();
+  reader.onload = (event) => {
+    const content = event.target.result;
+    if (file.name.toLowerCase().endsWith('.geojson') || file.name.toLowerCase().endsWith('.json')) {
+      try {
+        const geojson = JSON.parse(content);
+        loadGeoJSON(geojson);
+      } catch (ex) {
+        alert('Invalid GeoJSON file.');
+      }
+    } else if (file.name.toLowerCase().endsWith('.kml')) {
+      parseKML(content);
+    } else if (file.name.toLowerCase().endsWith('.csv')) {
+      parseCSV(content);
+    } else {
+      alert('Unsupported file format.');
+    }
+  };
+  reader.readAsText(file);
+  importFileInput.value = ''; // reset input
+});
+
+// Load GeoJSON polygon points as markers
+function loadGeoJSON(geojson) {
+  clearBtn.click();
+  if (geojson.type === 'FeatureCollection') {
+    for (const feat of geojson.features) {
+      if (feat.geometry.type === 'Polygon') {
+        addGeoJSONCoords(feat.geometry.coordinates[0]);
+        break;
+      }
+    }
+  } else if (geojson.type === 'Feature' && geojson.geometry.type === 'Polygon') {
+    addGeoJSONCoords(geojson.geometry.coordinates[0]);
+  } else if (geojson.type === 'Polygon') {
+    addGeoJSONCoords(geojson.coordinates[0]);
+  } else {
+    alert('GeoJSON does not contain a polygon.');
+  }
+}
+
+function addGeoJSONCoords(coords) {
+  // coords is array of [lng, lat] pairs (closed polygon, last point = first)
+  coords.forEach(([lng, lat]) => {
+    addPoint(L.latLng(lat, lng));
+  });
+}
+
+// Simple KML polygon parser (supports 1 polygon)
+function parseKML(kmlText) {
+  clearBtn.click();
+  const parser = new DOMParser();
+  const xmlDoc = parser.parseFromString(kmlText, "text/xml");
+  const coordsElems = xmlDoc.getElementsByTagName('coordinates');
+  if (coordsElems.length === 0) {
+    alert('No coordinates found in KML.');
+    return;
+  }
+  const coordsText = coordsElems[0].textContent.trim();
+  const coordsPairs = coordsText.split(/\s+/).map(pair => {
+    const [lng, lat] = pair.split(',').map(Number);
+    return L.latLng(lat, lng);
+  });
+  coordsPairs.forEach(ll => addPoint(ll));
+}
+
+// Simple CSV parser (expects lat,lng header)
+function parseCSV(csvText) {
+  clearBtn.click();
+  const lines = csvText.trim().split('\n');
+  const header = lines.shift().toLowerCase();
+  if (!header.includes('lat') || !header.includes('lng')) {
+    alert('CSV must have lat and lng columns.');
+    return;
+  }
+  lines.forEach(line => {
+    const [latStr, lngStr] = line.split(',');
+    const lat = parseFloat(latStr);
+    const lng = parseFloat(lngStr);
+    if (!isNaN(lat) && !isNaN(lng)) {
+      addPoint(L.latLng(lat, lng));
+    }
+  });
+}
+
+// --- GPS Tracking Mode ---
+toggleTrackingBtn.addEventListener('click', () => {
+  if (!tracking) {
+    startTracking();
+  } else {
+    stopTracking();
+  }
+});
+
+function startTracking() {
+  if (!navigator.geolocation) {
+    alert('Geolocation not supported by your browser.');
+    return;
+  }
+  tracking = true;
+  toggleTrackingBtn.textContent = 'Stop Tracking';
+  clearBtn.disabled = true;
+  addPointFromGPS(); // add initial point
+
+  watchID = navigator.geolocation.watchPosition(
+    pos => {
+      const latlng = L.latLng(pos.coords.latitude, pos.coords.longitude);
+      addPoint(latlng);
+      accuracyDisplay.textContent = pos.coords.accuracy.toFixed(1) + ' m';
+      map.panTo(latlng);
+    },
+    err => {
+      alert('Tracking error: ' + err.message);
+      stopTracking();
+    },
+    {
+      enableHighAccuracy: true,
+      maximumAge: 5000,
+      timeout: 10000,
+    }
+  );
+}
+
+function stopTracking() {
+  tracking = false;
+  toggleTrackingBtn.textContent = 'Start Tracking';
+  clearBtn.disabled = false;
+  if (watchID !== null) {
+    navigator.geolocation.clearWatch(watchID);
+    watchID = null;
+  }
+  accuracyDisplay.textContent = 'N/A';
+}
+
+function addPointFromGPS() {
+  if (!navigator.geolocation) return;
+  navigator.geolocation.getCurrentPosition(pos => {
+    addPoint(L.latLng(pos.coords.latitude, pos.coords.longitude));
+    accuracyDisplay.textContent = pos.coords.accuracy.toFixed(1) + ' m';
+  });
+}
+</script>
+</body>
+</html>
