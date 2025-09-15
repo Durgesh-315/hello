@@ -17,11 +17,13 @@
         .status-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; background-color: #10b981; animation: blink 1.5s infinite; margin-right: 8px; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
         @keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+        #coords { position: absolute; bottom: 10px; left: 10px; background: white; padding: 5px 10px; border-radius: 5px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); z-index: 1000; font-size: 14px; color: #333; }
         @media (max-width: 640px) {
             #map { height: 400px; }
             .controls { flex-direction: column; align-items: stretch; }
             #searchInput { width: 100%; }
             body { margin: 10px; }
+            #coords { font-size: 12px; padding: 4px 8px; }
         }
     </style>
 </head>
@@ -55,6 +57,7 @@
     <div id="map"></div>
     <div id="spinner" class="spinner"></div>
     <div id="result" class="text-gray-800" aria-live="polite">Loading your location... Allow location permissions if prompted.</div>
+    <div id="coords">Lat: 0.000000, Lon: 0.000000</div>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
     <script src="https://cdn.jsdelivr.net/npm/@turf/turf@7/turf.min.js"></script>
     <script>
@@ -95,45 +98,66 @@
         map.on('focus', () => { map.scrollWheelZoom.enable(); });
         map.on('blur', () => { map.scrollWheelZoom.disable(); });
 
-        // Create pane for labels
-        map.createPane('labels');
-        map.getPane('labels').style.zIndex = 650;
-        map.getPane('labels').style.pointerEvents = 'none';
+        // Quadkey function for Bing tiles
+        function quadKey(z, x, y) {
+            let quad = '';
+            for (let i = z; i > 0; i--) {
+                let mask = 1 << (i - 1);
+                let digit = 0;
+                if ((x & mask) !== 0) digit += 1;
+                if ((y & mask) !== 0) digit += 2;
+                quad += digit;
+            }
+            return quad;
+        }
 
         // Define base layers
         const standardLayer = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
             attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
             maxNativeZoom: 19,
-            maxZoom: 22
+            maxZoom: 22,
+            detectRetina: true
         }).addTo(map);
 
-        const satelliteLayer = L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-            attribution: '&copy; <a href="https://www.esri.com/">Esri</a>, i-cubed, USDA, USGS, AEX, GeoEye, Getmapping, Aerogrid, IGN, IGP, UPR-EGP, and the GIS User Community',
-            maxNativeZoom: 18,
-            maxZoom: 22
-        });
-
-        const labelsLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_only_labels/{z}/{x}/{y}{r}.png', {
-            attribution: '&copy; <a href="https://carto.com/attributions">CARTO</a>',
-            pane: 'labels',
+        const bingAerial = L.tileLayer('https://ecn.t{s}.tiles.virtualearth.net/tiles/a{q}.jpeg?g=129&mkt=en-US', {
+            attribution: '&copy; <a href="https://www.bing.com/maps">Bing Maps</a>',
+            subdomains: '0123',
             maxNativeZoom: 20,
-            maxZoom: 22
+            maxZoom: 22,
+            detectRetina: true
         });
+        bingAerial.getTileUrl = function(coord) {
+            let tileUrl = L.TileLayer.prototype.getTileUrl.call(this, coord);
+            tileUrl = tileUrl.replace('{q}', quadKey(coord.z, coord.x, coord.y));
+            return tileUrl;
+        };
+
+        const bingHybrid = L.tileLayer('https://ecn.t{s}.tiles.virtualearth.net/tiles/h{q}.jpeg?g=129&mkt=en-US', {
+            attribution: '&copy; <a href="https://www.bing.com/maps">Bing Maps</a>',
+            subdomains: '0123',
+            maxNativeZoom: 20,
+            maxZoom: 22,
+            detectRetina: true
+        });
+        bingHybrid.getTileUrl = function(coord) {
+            let tileUrl = L.TileLayer.prototype.getTileUrl.call(this, coord);
+            tileUrl = tileUrl.replace('{q}', quadKey(coord.z, coord.x, coord.y));
+            return tileUrl;
+        };
 
         const topoLayer = L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png', {
             attribution: '&copy; <a href="https://opentopomap.org">OpenTopoMap</a> (<a href="https://creativecommons.org/licenses/by-sa/3.0/">CC-BY-SA</a>)',
             maxNativeZoom: 17,
-            maxZoom: 22
+            maxZoom: 22,
+            detectRetina: true
         });
-
-        const hybridLayer = L.layerGroup([satelliteLayer, labelsLayer]);
 
         // Handle tile loading errors
         standardLayer.on('tileerror', () => {
             document.getElementById('result').innerHTML = 'Error loading standard map tiles. Check your internet connection or try again later.';
             console.error('Standard tile layer error');
         });
-        satelliteLayer.on('tileerror', () => {
+        bingAerial.on('tileerror', () => {
             document.getElementById('result').innerHTML = 'Error loading satellite map tiles. Check your internet connection or try again later. Note: High-resolution satellite imagery may not be available in all areas.';
             console.error('Satellite tile layer error');
         });
@@ -141,12 +165,16 @@
             document.getElementById('result').innerHTML = 'Error loading topographic map tiles. Check your internet connection or try again later.';
             console.error('Topographic tile layer error');
         });
+        bingHybrid.on('tileerror', () => {
+            document.getElementById('result').innerHTML = 'Error loading hybrid map tiles. Check your internet connection or try again later.';
+            console.error('Hybrid tile layer error');
+        });
 
         // Add layer control
         const baseLayers = {
             "Standard View": standardLayer,
-            "Satellite View": satelliteLayer,
-            "Hybrid View": hybridLayer,
+            "Satellite View": bingAerial,
+            "Hybrid View": bingHybrid,
             "Topographic View": topoLayer
         };
         L.control.layers(baseLayers, null, { collapsed: false }).addTo(map);
@@ -159,6 +187,11 @@
 
         // Add scale control
         L.control.scale({ imperial: true, metric: true }).addTo(map);
+
+        // Mouse coordinates
+        map.on('mousemove', (e) => {
+            document.getElementById('coords').innerHTML = `Lat: ${e.latlng.lat.toFixed(6)}, Lon: ${e.latlng.lng.toFixed(6)}`;
+        });
 
         let coordinates = [];
         let pathLine = null;
@@ -183,6 +216,10 @@
         const resultDiv = document.getElementById('result');
         const spinner = document.getElementById('spinner');
         const unitSelect = document.getElementById('unitSelect');
+
+        // Initial button visibility
+        pauseButton.style.display = 'none';
+        undoButton.style.display = '';
 
         // Fullscreen toggle
         fullscreenButton.addEventListener('click', () => {
@@ -366,10 +403,14 @@
             map.off('click', onMapClick);
             if (isGpsMode) {
                 resultDiv.innerHTML = 'GPS Mode: Click Start to track your walk outdoors. Allow location permissions.';
+                pauseButton.style.display = '';
+                undoButton.style.display = 'none';
             } else {
                 map.stopLocate();
                 map.on('click', onMapClick);
                 resultDiv.innerHTML = 'Manual Mode: Click Start to add points.';
+                pauseButton.style.display = 'none';
+                undoButton.style.display = '';
                 startButton.disabled = false;
                 stopButton.disabled = true;
                 clearButton.disabled = true;
