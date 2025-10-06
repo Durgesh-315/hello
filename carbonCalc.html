@@ -1,0 +1,907 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Advanced GHG and Carbon Footprint Calculator</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f4f4f9;
+            margin: 0;
+            padding: 20px;
+            color: #333;
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        h1, h2 {
+            text-align: center;
+            color: #2c3e50;
+        }
+        .section {
+            display: none;
+            margin-bottom: 20px;
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+        }
+        .section.active {
+            display: block;
+        }
+        .section h3 {
+            margin-top: 0;
+            color: #3498db;
+        }
+        form {
+            display: grid;
+            gap: 15px;
+        }
+        label {
+            font-weight: bold;
+            position: relative;
+        }
+        .tooltip {
+            position: relative;
+            display: inline-block;
+            cursor: pointer;
+            color: #3498db;
+            font-size: 14px;
+            margin-left: 5px;
+        }
+        .tooltip .tooltip-text {
+            visibility: hidden;
+            width: 220px;
+            background-color: #ecf0f1;
+            color: #2c3e50;
+            text-align: left;
+            border-radius: 6px;
+            padding: 10px;
+            position: absolute;
+            z-index: 1;
+            bottom: 125%;
+            left: 50%;
+            margin-left: -110px;
+            opacity: 0;
+            transition: opacity 0.3s;
+            border: 1px solid #bdc3c7;
+            font-size: 12px;
+        }
+        .tooltip:hover .tooltip-text {
+            visibility: visible;
+            opacity: 1;
+        }
+        input, select {
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            width: 100%;
+            box-sizing: border-box;
+        }
+        input[type="number"]:invalid, select:invalid {
+            border-color: #e74c3c;
+        }
+        input[type="number"].valid {
+            border-color: #ddd;
+        }
+        #rice-fields {
+            display: none;
+        }
+        .nav-buttons {
+            display: flex;
+            justify-content: space-between;
+            margin-top: 20px;
+        }
+        button {
+            background: #27ae60;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:disabled {
+            background: #95a5a6;
+            cursor: not-allowed;
+        }
+        button:hover:not(:disabled) {
+            background: #2ecc71;
+        }
+        #results {
+            margin-top: 30px;
+            display: none;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 20px;
+        }
+        th, td {
+            padding: 10px;
+            border: 1px solid #ddd;
+            text-align: left;
+        }
+        th {
+            background: #f1f1f1;
+        }
+        .total {
+            font-weight: bold;
+            background: #e8f4fd;
+        }
+        .credit {
+            font-size: 18px;
+            color: #27ae60;
+            text-align: center;
+        }
+        .progress-bar {
+            margin: 20px 0;
+            background: #ddd;
+            height: 10px;
+            border-radius: 5px;
+            overflow: hidden;
+        }
+        .progress {
+            height: 100%;
+            background: #3498db;
+            transition: width 0.3s;
+        }
+        .help-icon {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            font-size: 24px;
+            color: #3498db;
+            cursor: pointer;
+        }
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.5);
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        .modal-content {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            max-width: 700px;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        .modal-content h2 {
+            margin-top: 0;
+        }
+        .modal-content p {
+            margin: 5px 0;
+        }
+        .modal-content strong {
+            color: #2c3e50;
+        }
+        .close {
+            float: right;
+            font-size: 20px;
+            cursor: pointer;
+        }
+        @media (max-width: 600px) {
+            .container {
+                padding: 10px;
+            }
+            .modal-content {
+                width: 90%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Advanced GHG and Carbon Footprint Calculator</h1>
+        <p>This calculator, based on VM0042 methodology for Madhya Pradesh cropping systems, estimates greenhouse gas (GHG) emissions and carbon credits. Complete the form across multiple pages, using Previous/Next buttons. Click the <i class="fas fa-question-circle"></i> icon for formulas and input details.</p>
+        
+        <div class="progress-bar">
+            <div class="progress" style="width: 25%;"></div>
+        </div>
+        
+        <form id="ghg-form" novalidate>
+            <!-- Page 1: Field and Crop Information -->
+            <div class="section active" id="page-1">
+                <h3>1. Field and Crop Information</h3>
+                <label for="crop_type">Crop Rotation Type
+                    <div class="tooltip">?<span class="tooltip-text">Select your system (e.g., soybean-wheat). Determines methane (CH₄) calculations (formulas 12–15).</span></div>
+                </label>
+                <select id="crop_type" name="crop_type" required>
+                    <option value="soybean-wheat" selected>Soybean–Wheat</option>
+                    <option value="maize-chickpea">Maize–Chickpea</option>
+                    <option value="rice-wheat">Rice–Wheat</option>
+                </select>
+                
+                <label for="area">Field Area (ha - hectares)
+                    <div class="tooltip">?<span class="tooltip-text">Size of the field in hectares for scaling totals (formula 38).</span></div>
+                </label>
+                <input type="number" id="area" name="area" min="0" step="0.01" value="0" required>
+                
+                <label for="soil_texture">Soil Texture
+                    <div class="tooltip">?<span class="tooltip-text">Affects nitrous oxide (N₂O) emission factor (EF1, formulas 1–10). Options: Fine (clay), Medium (loam), Coarse (sand).</span></div>
+                </label>
+                <select id="soil_texture" name="soil_texture" required>
+                    <option value="medium" selected>Medium (e.g., loam)</option>
+                    <option value="fine">Fine (e.g., clay)</option>
+                    <option value="coarse">Coarse (e.g., sand)</option>
+                </select>
+                
+                <label for="soil_drainage">Soil Drainage
+                    <div class="tooltip">?<span class="tooltip-text">Good (well-drained) or Poor (waterlogged), impacts N leaching (formulas 6–8).</span></div>
+                </label>
+                <select id="soil_drainage" name="soil_drainage" required>
+                    <option value="good" selected>Good</option>
+                    <option value="poor">Poor</option>
+                </select>
+                
+                <label for="initial_SOC">Initial Soil Organic Carbon Stock (t C/ha, optional)
+                    <div class="tooltip">?<span class="tooltip-text">Baseline SOC stock (0–30 cm depth). Default: 50 t C/ha. Used for context (formulas 22–23).</span></div>
+                </label>
+                <input type="number" id="initial_SOC" name="initial_SOC" min="0" step="0.1" placeholder="Default: 50">
+                
+                <label for="bulk_density">Soil Bulk Density (Mg/m³, optional)
+                    <div class="tooltip">?<span class="tooltip-text">Density for 0–30 cm depth. Default: 1.3 Mg/m³. Contextual for SOC.</span></div>
+                </label>
+                <input type="number" id="bulk_density" name="bulk_density" min="0" step="0.01" placeholder="Default: 1.3">
+            </div>
+            
+            <!-- Page 2: Baseline Management Practices -->
+            <div class="section" id="page-2">
+                <h3>2. Baseline Management Practices (Business-as-Usual)</h3>
+                <label for="N_syn_BL">Synthetic Nitrogen Applied (kg N/ha/season)
+                    <div class="tooltip">?<span class="tooltip-text">Inorganic nitrogen fertilizer used in kilograms per hectare per season (formulas 1–10, 24).</span></div>
+                </label>
+                <input type="number" id="N_syn_BL" name="N_syn_BL" min="0" value="0" required>
+                
+                <label for="N_org_BL">Organic Nitrogen Applied (kg N/ha/season)
+                    <div class="tooltip">?<span class="tooltip-text">Manure/compost nitrogen used (formulas 1–11, 25).</span></div>
+                </label>
+                <input type="number" id="N_org_BL" name="N_org_BL" min="0" value="0" required>
+                
+                <label for="R_dry_BL">Dry Residue Burned (t/ha/season)
+                    <div class="tooltip">?<span class="tooltip-text">Dry crop residue burned in tonnes per hectare per season (formulas 16–18).</span></div>
+                </label>
+                <input type="number" id="R_dry_BL" name="R_dry_BL" min="0" value="0" required>
+                
+                <label for="F_fuel_BL">Diesel Used (L/ha/season)
+                    <div class="tooltip">?<span class="tooltip-text">Diesel fuel used for operations in liters per hectare per season (formulas 20, 28).</span></div>
+                </label>
+                <input type="number" id="F_fuel_BL" name="F_fuel_BL" min="0" value="0" required>
+                
+                <label for="deltaSOC_rate_BL">Annual SOC Change Rate (t C/ha/yr)
+                    <div class="tooltip">?<span class="tooltip-text">Baseline soil organic carbon change in tonnes carbon per hectare per year (formulas 22–23, 29, 33).</span></div>
+                </label>
+                <input type="number" id="deltaSOC_rate_BL" name="deltaSOC_rate_BL" step="0.01" value="0" required>
+            </div>
+            
+            <!-- Page 3: Project Improved Practices -->
+            <div class="section" id="page-3">
+                <h3>3. Project Improved Practices</h3>
+                <label for="N_substitution">Apply 20% Inorganic N Substitution with Organic N? (Yes/No)
+                    <div class="tooltip">?<span class="tooltip-text">Reduces synthetic nitrogen by 20%, adds equivalent organic nitrogen (formulas 24–25).</span></div>
+                </label>
+                <select id="N_substitution" name="N_substitution" required>
+                    <option value="yes" selected>Yes</option>
+                    <option value="no">No</option>
+                </select>
+                
+                <label for="reduced_tillage">Apply Reduced Tillage? (Yes/No)
+                    <div class="tooltip">?<span class="tooltip-text">Reduces fuel use and increases SOC (formulas 28–29).</span></div>
+                </label>
+                <select id="reduced_tillage" name="reduced_tillage" required>
+                    <option value="yes" selected>Yes</option>
+                    <option value="no">No</option>
+                </select>
+                
+                <label for="fuel_saving">Fuel Saving % from Reduced Tillage (if yes, default 25%)
+                    <div class="tooltip">?<span class="tooltip-text">Percentage reduction in fuel use (formula 28).</span></div>
+                </label>
+                <input type="number" id="fuel_saving" name="fuel_saving" min="0" max="100" step="1" placeholder="Default: 25">
+                
+                <label for="Biomass_cover">Cover Crop Biomass (t/ha/season)
+                    <div class="tooltip">?<span class="tooltip-text">Cover crop biomass in tonnes per hectare per season for SOC gain and nitrogen credit (formulas 30–33).</span></div>
+                </label>
+                <input type="number" id="Biomass_cover" name="Biomass_cover" min="0" value="0" required>
+                
+                <label for="f_legume">Legume Fraction in Cover Crop (0–1)
+                    <div class="tooltip">?<span class="tooltip-text">Fraction of cover crop that is legume, for nitrogen fixation credit (formulas 27, 32).</span></div>
+                </label>
+                <input type="number" id="f_legume" name="f_legume" min="0" max="1" step="0.01" value="0" required>
+                
+                <label for="N_fraction">Nitrogen Fraction in Cover Crop (fraction)
+                    <div class="tooltip">?<span class="tooltip-text">Nitrogen content as a fraction of cover crop biomass, e.g., 0.02 (formula 32).</span></div>
+                </label>
+                <input type="number" id="N_fraction" name="N_fraction" min="0" max="1" step="0.01" value="0" required>
+                
+                <div id="rice-fields">
+                    <label for="SF_water_PR">Water Management Scaling Factor (e.g., 0.52 for AWD)
+                        <div class="tooltip">?<span class="tooltip-text">Reduces methane for improved water management, e.g., alternate wetting and drying (formula 13).</span></div>
+                    </label>
+                    <input type="number" id="SF_water_PR" name="SF_water_PR" min="0" step="0.01" value="1" required>
+                    
+                    <label for="SF_residue_PR">Residue Management Scaling Factor (e.g., 0.80 for removal)
+                        <div class="tooltip">?<span class="tooltip-text">Reduces methane for better residue handling, e.g., removal/composting (formula 13).</span></div>
+                    </label>
+                    <input type="number" id="SF_residue_PR" name="SF_residue_PR" min="0" step="0.01" value="1" required>
+                </div>
+            </div>
+            
+            <!-- Page 4: Advanced Parameters -->
+            <div class="section" id="page-4">
+                <h3>4. Advanced Parameters (Optional - Use Defaults)</h3>
+                <label for="EF1">Direct N₂O Emission Factor (EF1, default 0.01)
+                    <div class="tooltip">?<span class="tooltip-text">Emission factor for nitrous oxide in kg N₂O-N per kg N (formulas 1–10).</span></div>
+                </label>
+                <input type="number" id="EF1" name="EF1" min="0" step="0.001" placeholder="Default: 0.01">
+                
+                <label for="Frac_leach">N Fraction Leached/Runoff (default 0.30)
+                    <div class="tooltip">?<span class="tooltip-text">Fraction of nitrogen lost to leaching/runoff (formulas 6–8).</span></div>
+                </label>
+                <input type="number" id="Frac_leach" name="Frac_leach" min="0" max="1" step="0.01" placeholder="Default: 0.30">
+                
+                <label for="Avail_org">Organic N Availability (default 0.5)
+                    <div class="tooltip">?<span class="tooltip-text">Fraction of organic nitrogen available in-season (formulas 11, 26).</span></div>
+                </label>
+                <input type="number" id="Avail_org" name="Avail_org" min="0" max="1" step="0.01" placeholder="Default: 0.5">
+            </div>
+            
+            <div class="nav-buttons">
+                <button type="button" id="prev-btn" disabled><i class="fas fa-chevron-left"></i> Previous</button>
+                <button type="button" id="next-btn">Next <i class="fas fa-chevron-right"></i></button>
+                <button type="submit" id="submit-btn" style="display: none;">Calculate and Generate Report</button>
+            </div>
+        </form>
+        
+        <div id="results" style="display: none;">
+            <h2>Detailed GHG and Carbon Footprint Report</h2>
+            <p>Report Date: October 6, 2025</p>
+            <table>
+                <thead>
+                    <tr>
+                        <th>Category</th>
+                        <th>Baseline (t CO₂e/ha/season)</th>
+                        <th>Project (t CO₂e/ha/season)</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td>N₂O Emissions</td>
+                        <td id="N2O_BL"></td>
+                        <td id="N2O_PR"></td>
+                    </tr>
+                    <tr>
+                        <td>CH₄ Emissions (Rice)</td>
+                        <td id="CH4_BL"></td>
+                        <td id="CH4_PR"></td>
+                    </tr>
+                    <tr>
+                        <td>Residue Burning Emissions</td>
+                        <td id="Burning_BL"></td>
+                        <td id="Burning_PR"></td>
+                    </tr>
+                    <tr>
+                        <td>Fuel CO₂ Emissions</td>
+                        <td id="Fuel_BL"></td>
+                        <td id="Fuel_PR"></td>
+                    </tr>
+                    <tr>
+                        <td>SOC Removals (Negative = Sink)</td>
+                        <td id="SOC"></td>
+                        <td id="SOC_PR"></td>
+                    </tr>
+                    <tr class="total">
+                        <td>Total CO₂e</td>
+                        <td id="CO2e_BL"></td>
+                        <td id="CO2e_PR"></td>
+                    </tr>
+                </tbody>
+            </table>
+            <p>Emission Reduction (t CO₂e/ha/season): <span id="ER"></span></p>
+            <p class="credit">Total Carbon Credits (t CO₂e for field, after buffers/leakage): <span id="Credits"></span></p>
+            <p>Recommendations: <span id="recommendations"></span></p>
+        </div>
+        <canvas id="resultsChart" width="400" height="200"></canvas>
+        
+        <!-- Help Icon and Modal -->
+        <div class="help-icon" id="help-icon"><i class="fas fa-question-circle"></i></div>
+        <div class="modal" id="help-modal">
+            <div class="modal-content">
+                <span class="close">&times;</span>
+                <h2>Formulas Used (VM0042 Methodology)</h2>
+                <h3>N₂O Emissions (11 Formulas)</h3>
+                <p><strong>1. Direct N₂O-N</strong>: N2O_N_direct = EF1 × (N_syn + N_org_available)<br>Calculates direct nitrous oxide emissions from nitrogen inputs.<br><em>Fields: Synthetic Nitrogen (N_syn_BL, N_syn_PR), Organic Nitrogen (N_org_BL, N_org_PR), Organic N Availability (Avail_org)</em></p>
+                <p><strong>2. Direct N₂O</strong>: N2O_direct = N2O_N_direct × (44/28)<br>Converts N₂O-N to N₂O gas.<br><em>Fields: Same as 1</em></p>
+                <p><strong>3. Volatilized N</strong>: N_volatilized = EF_fr × (N_syn + N_org_available)<br>Estimates nitrogen lost as ammonia/NOx.<br><em>Fields: Same as 1</em></p>
+                <p><strong>4. Indirect N₂O-N (Volatilization)</strong>: N2O_N_indir_vol = EF_indir_vol × N_volatilized<br><em>Fields: Same as 1</em></p>
+                <p><strong>5. Indirect N₂O (Volatilization)</strong>: N2O_indir_vol = N2O_N_indir_vol × (44/28)<br><em>Fields: Same as 1</em></p>
+                <p><strong>6. Leached N</strong>: N_leached = Frac_leach × (N_syn + N_org_available)<br><em>Fields: Same as 1, N Fraction Leached (Frac_leach), Soil Texture, Soil Drainage</em></p>
+                <p><strong>7. Indirect N₂O-N (Leaching)</strong>: N2O_N_indir_leach = EF_indir_leach × N_leached<br><em>Fields: Same as 6</em></p>
+                <p><strong>8. Indirect N₂O (Leaching)</strong>: N2O_indir_leach = N2O_N_indir_leach × (44/28)<br><em>Fields: Same as 6</em></p>
+                <p><strong>9. Total N₂O</strong>: N2O_total = N2O_direct + N2O_indir_vol + N2O_indir_leach<br><em>Fields: Same as 1, 6</em></p>
+                <p><strong>10. N₂O CO₂e</strong>: N2O_CO2e = (N2O_total / 1000) × GWP_N2O<br>Converts to CO₂-equivalent.<br><em>Fields: Same as 1, 6</em></p>
+                <p><strong>11. Available Organic N</strong>: N_org_available = Avail_org × N_org<br>Calculates available organic nitrogen.<br><em>Fields: Organic Nitrogen (N_org_BL, N_org_PR), Organic N Availability (Avail_org)</em></p>
+                
+                <h3>CH₄ from Rice (4 Formulas)</h3>
+                <p><strong>12. Baseline CH₄</strong>: CH4_BL = EF_CH4_rice<br>Baseline methane emissions for rice.<br><em>Fields: Crop Type (rice-wheat)</em></p>
+                <p><strong>13. Project CH₄</strong>: CH4_PR = EF_CH4_rice × SF_water × SF_residue × SF_soil × SF_variety<br><em>Fields: Crop Type, Water Management Scaling Factor (SF_water_PR), Residue Management Scaling Factor (SF_residue_PR)</em></p>
+                <p><strong>14. Baseline CH₄ CO₂e</strong>: CH4_BL_CO2e = (CH4_BL / 1000) × GWP_CH4<br><em>Fields: Crop Type</em></p>
+                <p><strong>15. Project CH₄ CO₂e</strong>: CH4_PR_CO2e = (CH4_PR / 1000) × GWP_CH4<br><em>Fields: Same as 13</em></p>
+                
+                <h3>Residue Burning (4 Formulas)</h3>
+                <p><strong>16. CH₄ from Burning</strong>: E_CH4_burn_BL = EF_burn_CH4 × R_dry<br><em>Fields: Dry Residue Burned (R_dry_BL)</em></p>
+                <p><strong>17. N₂O from Burning</strong>: E_N2O_burn_BL = EF_burn_N2O × R_dry<br><em>Fields: Dry Residue Burned (R_dry_BL)</em></p>
+                <p><strong>18. Burning CO₂e</strong>: Burning_CO2e_BL = (E_CH4_burn_BL/1000) × GWP_CH4 + (E_N2O_burn_BL/1000) × GWP_N2O<br><em>Fields: Dry Residue Burned (R_dry_BL)</em></p>
+                <p><strong>19. Project Burning</strong>: Burning_CO2e_PR = 0.0<br>No burning in project scenario.<br><em>Fields: None</em></p>
+                
+                <h3>Fuel Use (2 Formulas)</h3>
+                <p><strong>20. Baseline Fuel CO₂</strong>: Fuel_CO2_BL = (F_fuel_BL × EF_fuel_CO2) / 1000<br><em>Fields: Diesel Used (F_fuel_BL)</em></p>
+                <p><strong>21. Project Fuel CO₂</strong>: Fuel_CO2_PR = (F_fuel_PR × EF_fuel_CO2) / 1000<br><em>Fields: Diesel Used (F_fuel_BL), Reduced Tillage, Fuel Saving % (fuel_saving)</em></p>
+                
+                <h3>Soil Organic Carbon (2 Formulas)</h3>
+                <p><strong>22. SOC Change Rate</strong>: ΔSOC_rate = r_baseline + r_practices<br>Combines baseline and practice effects.<br><em>Fields: Annual SOC Change Rate (deltaSOC_rate_BL), Reduced Tillage, Cover Crop Biomass (Biomass_cover)</em></p>
+                <p><strong>23. SOC CO₂e</strong>: SOC_CO2e = (ΔSOC_PR - ΔSOC_BL) × (44/12)<br>Converts SOC change to CO₂e.<br><em>Fields: Same as 22</em></p>
+                
+                <h3>Improved Practices (10 Formulas)</h3>
+                <p><strong>24. Project Synthetic N</strong>: N_syn_PR = 0.8 × N_syn_BL<br>20% reduction if substitution applied.<br><em>Fields: Synthetic Nitrogen (N_syn_BL), Apply N Substitution</em></p>
+                <p><strong>25. Project Organic N</strong>: N_org_PR = N_org_BL + (0.2 × N_syn_BL)<br><em>Fields: Organic Nitrogen (N_org_BL), Apply N Substitution</em></p>
+                <p><strong>26. Project Organic N Available</strong>: N_org_available_PR = Avail_org × N_org_PR<br><em>Fields: Organic Nitrogen (N_org_BL), Apply N Substitution, Organic N Availability (Avail_org)</em></p>
+                <p><strong>27. Optional Legume N Credit</strong>: N_syn_PR = max(0.0, N_syn_PR - N_fix_credit)<br><em>Fields: Cover Crop Biomass (Biomass_cover), Legume Fraction (f_legume), Nitrogen Fraction (N_fraction)</em></p>
+                <p><strong>28. Project Fuel Use</strong>: F_fuel_PR = (1 - RedTill_fuel_saving) × F_fuel_BL<br><em>Fields: Diesel Used (F_fuel_BL), Reduced Tillage, Fuel Saving % (fuel_saving)</em></p>
+                <p><strong>29. Project SOC Rate</strong>: ΔSOC_rate_PR = ΔSOC_rate_BL + ΔSOC_gain_reduced_till<br><em>Fields: Annual SOC Change Rate (deltaSOC_rate_BL), Reduced Tillage</em></p>
+                <p><strong>30. Cover Crop C Input</strong>: C_input_cover = Biomass_cover × C_fraction<br><em>Fields: Cover Crop Biomass (Biomass_cover)</em></p>
+                <p><strong>31. SOC Gain from Cover Crop</strong>: ΔSOC_gain_cover = conv_rate × C_input_cover<br><em>Fields: Cover Crop Biomass (Biomass_cover)</em></p>
+                <p><strong>32. N Fixation Credit</strong>: N_fix_credit = f_legume × Biomass_cover × N_fraction<br><em>Fields: Cover Crop Biomass (Biomass_cover), Legume Fraction (f_legume), Nitrogen Fraction (N_fraction)</em></p>
+                <p><strong>33. Update SOC Rate</strong>: ΔSOC_rate_PR += ΔSOC_gain_cover<br><em>Fields: Cover Crop Biomass (Biomass_cover)</em></p>
+                
+                <h3>Aggregation and Credits (8 Formulas)</h3>
+                <p><strong>34. Baseline Total CO₂e</strong>: CO2e_BL_is = N2O_BL_CO2e + CH4_BL_CO2e + Fuel_CO2_BL + Burning_CO2e_BL - SOC_CO2e_sink_BL<br><em>Fields: All baseline inputs</em></p>
+                <p><strong>35. Project Total CO₂e</strong>: CO2e_PR_is = N2O_PR_CO2e + CH4_PR_CO2e + Fuel_CO2_PR + Burning_CO2e_PR - SOC_CO2e_sink_PR<br><em>Fields: All project inputs</em></p>
+                <p><strong>36. Emission Reduction</strong>: ER_is = CO2e_BL_is - CO2e_PR_is<br><em>Fields: All inputs</em></p>
+                <p><strong>37. Annual ER per Field</strong>: ER_i_year = sum_s(ER_is)<br>Sum across seasons (single season here).<br><em>Fields: All inputs</em></p>
+                <p><strong>38. Project Total ER</strong>: ER_year = sum_i(ER_i_year × A_i)<br>Area-weighted sum.<br><em>Fields: Field Area (area)</em></p>
+                <p><strong>39. Net ER</strong>: ER_net_year = ER_year - Lk_year<br>Subtracts leakage.<br><em>Fields: Field Area (area)</em></p>
+                <p><strong>40. Buffered ER</strong>: ER_buffered_year = ER_net_year × (1 - UB) × (1 - PB)<br>Applies uncertainty/permanence buffers.<br><em>Fields: Field Area (area)</em></p>
+                <p><strong>41. Carbon Credits</strong>: Credits_year = ER_buffered_year<br><em>Fields: Field Area (area)</em></p>
+            </div>
+        </div>
+    </div>
+<script>
+    const form = document.getElementById('ghg-form');
+    const cropTypeSelect = document.getElementById('crop_type');
+    const riceFields = document.getElementById('rice-fields');
+    const resultsDiv = document.getElementById('results');
+    const prevBtn = document.getElementById('prev-btn');
+    const nextBtn = document.getElementById('next-btn');
+    const submitBtn = document.getElementById('submit-btn');
+    const progress = document.querySelector('.progress');
+    const helpIcon = document.getElementById('help-icon');
+    const helpModal = document.getElementById('help-modal');
+    const closeModal = document.querySelector('.close');
+
+    // Default parameters
+    const defaults = {
+        EF1: 0.01,
+        EF_fr: 0.10,
+        EF_indir_vol: 0.01,
+        Frac_leach: 0.30,
+        EF_indir_leach: 0.0075,
+        Avail_org: 0.5,
+        EF_CH4_rice: 1.30 * 120,
+        SF_soil: 1.0,
+        SF_variety: 1.0,
+        EF_burn_CH4: 2.7,
+        EF_burn_N2O: 0.07,
+        EF_fuel_CO2: 2.68,
+        GWP_CH4: 27.2,
+        GWP_N2O: 273,
+        RedTill_fuel_saving: 0.25,
+        deltaSOC_gain_reduced_till: 0.20,
+        C_fraction: 0.45,
+        conv_rate: 0.10,
+        UB: 0.05,
+        PB: 0.10,
+        Lk_year: 0.0,
+        initial_SOC: 50,
+        bulk_density: 1.3
+    };
+
+    // Store Chart.js instance
+    let chartInstance = null;
+
+    // Reset invalid numeric inputs on blur
+    document.querySelectorAll('input[type="number"]').forEach(input => {
+        input.addEventListener('blur', () => {
+            let value = parseFloat(input.value);
+            if (input.id === 'f_legume' || input.id === 'N_fraction' || input.id === 'SF_water_PR' || input.id === 'SF_residue_PR') {
+                value = Math.max(0, Math.min(1, value));
+            } else if (input.id === 'fuel_saving') {
+                value = Math.max(0, Math.min(100, value));
+            } else {
+                value = Math.max(0, value);
+            }
+            if (isNaN(value)) {
+                input.value = input.getAttribute('value') || (input.id === 'SF_water_PR' || input.id === 'SF_residue_PR' ? 1.0 : 0);
+            } else {
+                input.value = value;
+            }
+            input.classList.add('valid');
+        });
+        input.addEventListener('input', () => {
+            const value = parseFloat(input.value);
+            if (!isNaN(value) && value >= 0 && 
+                ((input.id === 'f_legume' || input.id === 'N_fraction' || input.id === 'SF_water_PR' || input.id === 'SF_residue_PR') ? value <= 1 : true) &&
+                (input.id === 'fuel_saving' ? value <= 100 : true)) {
+                input.classList.add('valid');
+            } else {
+                input.classList.remove('valid');
+            }
+        });
+    });
+
+    // Multi-page navigation
+    let currentPage = 1;
+    const totalPages = 4;
+
+    function updatePage() {
+        document.querySelectorAll('.section').forEach((section, index) => {
+            section.classList.toggle('active', index + 1 === currentPage);
+        });
+        progress.style.width = `${(currentPage / totalPages) * 100}%`;
+        prevBtn.disabled = currentPage === 1;
+        nextBtn.style.display = currentPage < totalPages ? 'block' : 'none';
+        submitBtn.style.display = currentPage === totalPages ? 'block' : 'none';
+        riceFields.style.display = cropTypeSelect.value.includes('rice') && currentPage === 3 ? 'block' : 'none';
+        console.log(`Crop Type: ${cropTypeSelect.value}, Current Page: ${currentPage}, Rice Fields Display: ${riceFields.style.display}`);
+    }
+
+    prevBtn.addEventListener('click', () => {
+        if (currentPage > 1) {
+            currentPage--;
+            updatePage();
+        }
+    });
+
+    nextBtn.addEventListener('click', () => {
+        if (validatePage(currentPage)) {
+            currentPage++;
+            updatePage();
+        } else {
+            alert('Please fill all required fields with valid values (select an option for dropdowns and non-negative numbers for numeric fields; fractions must be 0–1).');
+        }
+    });
+
+    function validatePage(page) {
+        const inputs = document.querySelectorAll(`#page-${page} [required]`);
+        let isValid = true;
+        Array.from(inputs).forEach(input => {
+            console.log(`Validating ${input.id}: ${input.value}`);
+            if (input.type === 'number') {
+                const value = parseFloat(input.value);
+                if (isNaN(value) || value < 0 || 
+                    (['f_legume', 'N_fraction', 'SF_water_PR', 'SF_residue_PR'].includes(input.id) && value > 1) ||
+                    (input.id === 'fuel_saving' && value > 100)) {
+                    input.classList.remove('valid');
+                    isValid = false;
+                } else {
+                    input.value = value;
+                    input.classList.add('valid');
+                }
+            } else if (input.tagName === 'SELECT') {
+                if (input.value === '') {
+                    input.value = input.options[1].value;
+                    console.log(`Set ${input.id} to default: ${input.value}`);
+                }
+            }
+        });
+        return isValid;
+    }
+
+    // Help modal
+    helpIcon.addEventListener('click', () => {
+        helpModal.style.display = 'flex';
+    });
+    closeModal.addEventListener('click', () => {
+        helpModal.style.display = 'none';
+    });
+    window.addEventListener('click', (e) => {
+        if (e.target === helpModal) helpModal.style.display = 'none';
+    });
+
+    // Show/hide rice fields
+    cropTypeSelect.addEventListener('change', () => {
+        if (currentPage === 3) {
+            riceFields.style.display = cropTypeSelect.value.includes('rice') ? 'block' : 'none';
+        }
+        if (!cropTypeSelect.value.includes('rice')) {
+            document.getElementById('SF_water_PR').value = 1.0;
+            document.getElementById('SF_residue_PR').value = 1.0;
+        }
+    });
+
+    // Form submission
+    form.addEventListener('submit', (e) => {
+        e.preventDefault();
+        console.log('Form submission started');
+        for (let page = 1; page <= totalPages; page++) {
+            if (!validatePage(page)) {
+                alert(`Please fill all required fields on page ${page} with valid values.`);
+                currentPage = page;
+                updatePage();
+                return;
+            }
+        }
+        const inputs = getInputs();
+        const invalidField = validateInputs(inputs);
+        if (invalidField) {
+            alert(`Invalid input for ${invalidField}. Please enter a non-negative number or valid selection.`);
+            return;
+        }
+        const params = {...defaults, ...getAdvancedParams()};
+        try {
+            console.log('Attempting GHG calculation');
+            const results = calculateGHG(inputs, params);
+            console.log('Displaying results');
+            displayResults(results);
+            console.log('Drawing chart');
+            drawChart(results);
+            console.log('Generating recommendations');
+            generateRecommendations(results);
+            resultsDiv.style.display = 'block';
+            resultsDiv.scrollIntoView({ behavior: 'smooth' });
+        } catch (error) {
+            console.error('Calculation error:', error);
+            alert('Calculation failed. Please check inputs.');
+        }
+    });
+
+    // Get inputs with default enforcement
+    function getInputs() {
+        const inputs = {
+            crop_type: document.getElementById('crop_type').value || 'rice-wheat',
+            area: parseFloat(document.getElementById('area').value) || 0,
+            soil_texture: document.getElementById('soil_texture').value || 'medium',
+            soil_drainage: document.getElementById('soil_drainage').value || 'good',
+            initial_SOC: parseFloat(document.getElementById('initial_SOC').value) || defaults.initial_SOC,
+            bulk_density: parseFloat(document.getElementById('bulk_density').value) || defaults.bulk_density,
+            N_syn_BL: parseFloat(document.getElementById('N_syn_BL').value) || 0,
+            N_org_BL: parseFloat(document.getElementById('N_org_BL').value) || 0,
+            R_dry_BL: parseFloat(document.getElementById('R_dry_BL').value) || 0,
+            F_fuel_BL: parseFloat(document.getElementById('F_fuel_BL').value) || 0,
+            deltaSOC_rate_BL: parseFloat(document.getElementById('deltaSOC_rate_BL').value) || 0,
+            N_substitution: document.getElementById('N_substitution').value === 'yes',
+            reduced_tillage: document.getElementById('reduced_tillage').value === 'yes',
+            fuel_saving: parseFloat(document.getElementById('fuel_saving').value) || defaults.RedTill_fuel_saving,
+            Biomass_cover: parseFloat(document.getElementById('Biomass_cover').value) || 0,
+            f_legume: Math.max(0, Math.min(1, parseFloat(document.getElementById('f_legume').value) || 0)),
+            N_fraction: parseFloat(document.getElementById('N_fraction').value) || 0.05,
+            SF_water_PR: cropTypeSelect.value.includes('rice') ? (parseFloat(document.getElementById('SF_water_PR').value) || 1.0) : 1.0,
+            SF_residue_PR: cropTypeSelect.value.includes('rice') ? (parseFloat(document.getElementById('SF_residue_PR').value) || 1.0) : 1.0
+        };
+        console.log('Captured Inputs:', inputs);
+        inputs.area = Math.max(0, inputs.area);
+        inputs.N_syn_BL = Math.max(0, inputs.N_syn_BL);
+        inputs.N_org_BL = Math.max(0, inputs.N_org_BL);
+        inputs.R_dry_BL = Math.max(0, inputs.R_dry_BL);
+        inputs.F_fuel_BL = Math.max(0, inputs.F_fuel_BL);
+        inputs.deltaSOC_rate_BL = inputs.deltaSOC_rate_BL || 0;
+        inputs.Biomass_cover = Math.max(0, inputs.Biomass_cover);
+        inputs.f_legume = Math.max(0, Math.min(1, inputs.f_legume));
+        inputs.N_fraction = Math.max(0, Math.min(1, inputs.N_fraction));
+        inputs.SF_water_PR = Math.max(0, Math.min(1, inputs.SF_water_PR));
+        inputs.SF_residue_PR = Math.max(0, Math.min(1, inputs.SF_residue_PR));
+        inputs.fuel_saving = Math.max(0, Math.min(100, inputs.fuel_saving));
+        return inputs;
+    }
+
+    // Get advanced params
+    function getAdvancedParams() {
+        return {
+            EF1: parseFloat(document.getElementById('EF1').value) || defaults.EF1,
+            Frac_leach: Math.max(0, Math.min(1, parseFloat(document.getElementById('Frac_leach').value) || defaults.Frac_leach)),
+            Avail_org: Math.max(0, Math.min(1, parseFloat(document.getElementById('Avail_org').value) || defaults.Avail_org))
+        };
+    }
+
+    // Validate inputs with specific feedback
+    function validateInputs(inputs) {
+        for (const [key, value] of Object.entries(inputs)) {
+            if (key === 'crop_type' || key === 'soil_texture' || key === 'soil_drainage') {
+                if (value === '') return `${key}: Please select a valid option`;
+            } else if (key === 'N_substitution' || key === 'reduced_tillage') {
+                // Boolean, always valid
+            } else {
+                if (typeof value === 'undefined' || isNaN(value) || value < 0) {
+                    return `${key}: Please enter a non-negative number`;
+                }
+                if ((key === 'f_legume' || key === 'N_fraction' || key === 'Frac_leach' || key === 'Avail_org' || key === 'SF_water_PR' || key === 'SF_residue_PR') && value > 1) {
+                    return `${key}: Value must be between 0 and 1`;
+                }
+                if (key === 'fuel_saving' && value > 100) {
+                    return `${key}: Value must be between 0 and 100`;
+                }
+                if (key === 'area' && value > 10000) return `${key}: Field area must be ≤ 10,000 ha`;
+                if (key === 'Biomass_cover' && value > 20) return `${key}: Cover crop biomass must be ≤ 20 t/ha`;
+                if (key === 'N_syn_BL' && value > 500) return `${key}: Synthetic nitrogen must be ≤ 500 kg N/ha`;
+                if (key === 'N_org_BL' && value > 500) return `${key}: Organic nitrogen must be ≤ 500 kg N/ha`;
+                if (key === 'F_fuel_BL' && value > 1000) return `${key}: Diesel use must be ≤ 1000 L/ha`;
+            }
+        }
+        return null;
+    }
+
+    // Calculate GHG (41 formulas)
+    function calculateGHG(inputs, params) {
+        console.log('Starting GHG calculation with inputs:', inputs);
+        try {
+            if (inputs.soil_drainage === 'poor') params.Frac_leach = Math.min(0.35, params.Frac_leach + 0.05);
+            if (inputs.soil_texture === 'fine') params.EF1 = Math.min(0.015, params.EF1 + 0.005);
+
+            function calculateN2O(N_syn, N_org, params) {
+                const N_org_available = params.Avail_org * N_org; // 11
+                console.log(`N2O Calc: N_syn=${N_syn}, N_org_available=${N_org_available}`);
+                const N2O_N_direct = params.EF1 * (N_syn + N_org_available); // 1
+                const N2O_direct = N2O_N_direct * (44/28); // 2
+                const N_volatilized = params.EF_fr * (N_syn + N_org_available); // 3
+                const N2O_N_indir_vol = params.EF_indir_vol * N_volatilized; // 4
+                const N2O_indir_vol = N2O_N_indir_vol * (44/28); // 5
+                const N_leached = params.Frac_leach * (N_syn + N_org_available); // 6
+                const N2O_N_indir_leach = params.EF_indir_leach * N_leached; // 7
+                const N2O_indir_leach = N2O_N_indir_leach * (44/28); // 8
+                const N2O_total = N2O_direct + N2O_indir_vol + N2O_indir_leach; // 9
+                return (N2O_total / 1000) * params.GWP_N2O; // 10
+            }
+
+            function calculateCH4(isProject, crop_type, params, SF_water_PR, SF_residue_PR) {
+                if (!crop_type.includes('rice')) return 0;
+                let CH4 = isProject ? params.EF_CH4_rice * SF_water_PR * SF_residue_PR * params.SF_soil * params.SF_variety : params.EF_CH4_rice;
+                console.log(`CH4 Calc: isProject=${isProject}, CH4=${CH4}, SF_water_PR=${SF_water_PR}, SF_residue_PR=${SF_residue_PR}`);
+                return (CH4 / 1000) * params.GWP_CH4; // 14, 15
+            }
+
+            function calculateBurning(R_dry, params) {
+                const E_CH4_burn = params.EF_burn_CH4 * R_dry; // 16
+                const E_N2O_burn = params.EF_burn_N2O * R_dry; // 17
+                return (E_CH4_burn / 1000) * params.GWP_CH4 + (E_N2O_burn / 1000) * params.GWP_N2O; // 18
+            }
+
+            function calculateFuel(F_fuel, params) {
+                return (F_fuel * params.EF_fuel_CO2) / 1000; // 20, 21
+            }
+
+            function calculateSOC(deltaSOC_rate_PR, deltaSOC_rate_BL) {
+                const SOC = (deltaSOC_rate_BL - deltaSOC_rate_PR) * (44/12); // 23, reversed for sink
+                console.log(`SOC Calc: deltaSOC_rate_PR=${deltaSOC_rate_PR}, deltaSOC_rate_BL=${deltaSOC_rate_BL}, SOC=${SOC}`);
+                return SOC;
+            }
+
+            const N2O_BL = calculateN2O(inputs.N_syn_BL, inputs.N_org_BL, params);
+            const CH4_BL = calculateCH4(false, inputs.crop_type, params, inputs.SF_water_PR, inputs.SF_residue_PR);
+            const Burning_BL = calculateBurning(inputs.R_dry_BL, params);
+            const Fuel_BL = calculateFuel(inputs.F_fuel_BL, params);
+
+            let N_syn_PR = inputs.N_substitution ? 0.8 * inputs.N_syn_BL : inputs.N_syn_BL; // 24
+            const N_org_PR = inputs.N_org_BL; // 25, fixed to use baseline organic N only
+            const N_fix_credit = Math.min(inputs.N_syn_BL, inputs.f_legume * inputs.Biomass_cover * 0.375); // 32, adjusted N_fraction
+            console.log(`N_fix_credit: ${N_fix_credit}, N_syn_PR before: ${N_syn_PR}`);
+            N_syn_PR = Math.max(0, N_syn_PR - N_fix_credit); // 27
+            console.log(`N_syn_PR after: ${N_syn_PR}`);
+            const N2O_PR = calculateN2O(N_syn_PR, N_org_PR, params);
+            const CH4_PR = calculateCH4(true, inputs.crop_type, params, inputs.SF_water_PR, inputs.SF_residue_PR);
+            const Burning_PR = 0; // 19
+            const F_fuel_PR = inputs.reduced_tillage ? (1 - inputs.fuel_saving / 100) * inputs.F_fuel_BL : inputs.F_fuel_BL; // 28
+            const Fuel_PR = calculateFuel(F_fuel_PR, params); // 21
+            const C_input_cover = inputs.Biomass_cover * params.C_fraction; // 30
+            const deltaSOC_gain_cover = params.conv_rate * C_input_cover; // 31
+            const deltaSOC_rate_PR = inputs.deltaSOC_rate_BL + (inputs.reduced_tillage ? params.deltaSOC_gain_reduced_till : 0) + deltaSOC_gain_cover; // 29 + 33
+            const SOC = calculateSOC(deltaSOC_rate_PR, inputs.deltaSOC_rate_BL); // 23
+
+            const CO2e_BL = N2O_BL + CH4_BL + Burning_BL + Fuel_BL - SOC; // 34, subtract SOC for sink
+            const CO2e_PR = N2O_PR + CH4_PR + Fuel_PR + Burning_PR - SOC; // 35, subtract SOC for sink
+            const ER = CO2e_BL - CO2e_PR; // 36
+            let ER_year = ER; // 37
+            ER_year *= inputs.area; // 38
+            const ER_net = ER_year - params.Lk_year; // 39
+            const Credits = ER_net * (1 - params.UB) * (1 - params.PB); // 40, 41
+
+            console.log('Results:', { N2O_BL, CH4_BL, Burning_BL, Fuel_BL, N2O_PR, CH4_PR, Burning_PR, Fuel_PR, SOC, CO2e_BL, CO2e_PR, ER, Credits });
+
+            return { N2O_BL, CH4_BL, Burning_BL, Fuel_BL, N2O_PR, CH4_PR, Burning_PR, Fuel_PR, SOC, CO2e_BL, CO2e_PR, ER, Credits };
+        } catch (error) {
+            console.error('Calculation error in calculateGHG:', error);
+            throw error;
+        }
+    }
+
+    // Display results
+    function displayResults(results) {
+        try {
+            document.getElementById('N2O_BL').textContent = results.N2O_BL.toFixed(2);
+            document.getElementById('N2O_PR').textContent = results.N2O_PR.toFixed(2);
+            document.getElementById('CH4_BL').textContent = results.CH4_BL.toFixed(2);
+            document.getElementById('CH4_PR').textContent = results.CH4_PR.toFixed(2);
+            document.getElementById('Burning_BL').textContent = results.Burning_BL.toFixed(2);
+            document.getElementById('Burning_PR').textContent = results.Burning_PR.toFixed(2);
+            document.getElementById('Fuel_BL').textContent = results.Fuel_BL.toFixed(2);
+            document.getElementById('Fuel_PR').textContent = results.Fuel_PR.toFixed(2);
+            document.getElementById('SOC').textContent = results.SOC.toFixed(2);
+            document.getElementById('SOC_PR').textContent = results.SOC.toFixed(2); // Same SOC for both
+            document.getElementById('CO2e_BL').textContent = results.CO2e_BL.toFixed(2);
+            document.getElementById('CO2e_PR').textContent = results.CO2e_PR.toFixed(2);
+            document.getElementById('ER').textContent = results.ER.toFixed(2);
+            document.getElementById('Credits').textContent = results.Credits.toFixed(2);
+        } catch (error) {
+            console.error('Error in displayResults:', error);
+            alert('Failed to display results. Please ensure all result elements are present in the HTML.');
+        }
+    }
+
+    // Draw bar chart
+    function drawChart(results) {
+        try {
+            const ctx = document.getElementById('resultsChart').getContext('2d');
+            if (chartInstance) {
+                chartInstance.destroy();
+                chartInstance = null;
+            }
+            chartInstance = new Chart(ctx, {
+                type: 'bar',
+                data: {
+                    labels: ['N₂O', 'CH₄', 'Burning', 'Fuel'],
+                    datasets: [{
+                        label: 'Baseline',
+                        data: [results.N2O_BL, results.CH4_BL, results.Burning_BL, results.Fuel_BL],
+                        backgroundColor: '#e74c3c'
+                    }, {
+                        label: 'Project',
+                        data: [results.N2O_PR, results.CH4_PR, results.Burning_PR, results.Fuel_PR],
+                        backgroundColor: '#27ae60'
+                    }]
+                },
+                options: {
+                    scales: {
+                        y: { beginAtZero: true, title: { display: true, text: 't CO₂e/ha/season' } }
+                    }
+                }
+            });
+        } catch (error) {
+            console.error('Error in drawChart:', error);
+            alert('Failed to render chart. Please ensure Chart.js is loaded and the canvas element exists.');
+        }
+    }
+
+    // Generate recommendations
+    function generateRecommendations(results) {
+        try {
+            let rec = 'To reduce emissions further: ';
+            if (results.N2O_BL > results.N2O_PR * 1.2) rec += 'Optimize nitrogen use (e.g., precision application). ';
+            if (results.CH4_BL > 0) rec += 'Enhance rice water/residue management (e.g., alternate wetting and drying). ';
+            if (results.Burning_BL > 0) rec += 'Eliminate residue burning. ';
+            if (results.Fuel_BL > results.Fuel_PR * 1.2) rec += 'Expand reduced tillage practices. ';
+            rec += 'SOC gains indicate effective carbon sequestration.';
+            document.getElementById('recommendations').textContent = rec;
+        } catch (error) {
+            console.error('Error in generateRecommendations:', error);
+            alert('Failed to generate recommendations. Please ensure the recommendations element exists.');
+        }
+    }
+
+    // Initialize
+    updatePage();
+</script>
+</body>
+</html>
